@@ -1,0 +1,25 @@
+[build]
+target = "riscv64gc-unknown-none-elf"
+
+
+[unstable]
+build-std = ["core", "compiler_builtins"]
+build-std-features = ["compiler-builtins-mem"]
+
+[target.riscv64gc-unknown-none-elf]
+rustflags = [
+    "-C", "link-arg=-Tlink.ld",
+    "-C", "target-feature=+zihintpause",
+]
+runner = """
+qemu-system-riscv64 
+    -machine virt
+    -bios none
+    -serial mon:stdio
+    -device VGA -netdev user,id=net0 
+    -device virtio-net-pci,netdev=net0 
+    -drive if=none,format=raw,readonly=off,file=fs.img,id=drv0 
+    -device virtio-blk-pci,drive=drv0 
+    -kernel
+""" 
+

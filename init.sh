@@ -1,0 +1,1 @@
+truncate -s 32M fs2.img
