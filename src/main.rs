@@ -15,8 +15,6 @@ pub mod vga;
 use crate::dtb::Dtb;
 
 
-
-
 /// # Safety
 /// dtb_ptr must point to a valid dtb tree 
 #[unsafe(no_mangle)]
@@ -30,9 +28,9 @@ pub unsafe extern "C" fn rust_main(hart_id: usize, dtb_ptr: *const u8) -> ! {
     syscon::init(&dtb).unwrap();
 
     pci::init(&dtb).unwrap();
-    storage_device::init(&dtb).unwrap();
 
-    vga::init();
+    // storage_device::init(&dtb).unwrap();
+    // vga::init();
 
     syscon::poweroff();
 }

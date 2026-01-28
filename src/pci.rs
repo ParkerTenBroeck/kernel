@@ -1,6 +1,6 @@
 use core::{cell::UnsafeCell, mem::MaybeUninit};
 
-use crate::{dtb::*, println};
+use crate::{dtb::*, print, println};
 
 
 #[derive(Clone, Copy, Debug)]
@@ -73,7 +73,6 @@ impl PCI {
 
                     let cc   = unsafe { self.ecam_addr(bdf, 0x08).read_volatile() };
                     let hdr  = unsafe { self.ecam_addr(bdf, 0x0C).read_volatile() };
-                    let bar0 = unsafe { self.ecam_addr(bdf, 0x10).read_volatile() };
                     let cap  = unsafe { self.ecam_addr(bdf, 0x34).read_volatile() };
 
                     let class = (cc >> 24) as u8;
@@ -86,7 +85,9 @@ impl PCI {
                     println!("BDF {:02x?} vid={:#06x} did={:#06x}", bdf, vid, did);
                     println!("\tclass={:#04x} subclass={:#04x} prog_if={:#04x}", class, subclass, prog_if);
                     println!("\theader_type={:#04x} cap_ptr={:#04x}", header_type, cap_ptr);
-                    println!("\tbar0={:#010x} (io? {})", bar0, (bar0 & 1) != 0);
+                    for i in 0..=5{
+                        println!("\tbar{i}={:x?}", unsafe {self.read_bar(bdf, i)});
+                    }
                 }
             }
         }
