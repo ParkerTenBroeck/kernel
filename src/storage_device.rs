@@ -98,44 +98,9 @@ pub fn init(dtb: &Dtb<'_>) -> Result<(), DtbError> {
 
     println!("Setting up PCI storage device");
 
-    let Some((device, id)) = pci().find_device_vendor(0x1af4) else {
+    let Some((device, id)) = pci().find_device_vendor(0x1af4, todo!()) else {
         panic!("storage device not found")
     };
-
-    // // enable mmio and busmaster
-    // unsafe{
-    //     let command = pci().pointer(device, 0x04);
-
-    //     let v = command.read_unaligned();
-    //     let cmd = (v & 0xFFFF) as u16;
-    //     let new_cmd = cmd | (1 << 1) | (1 << 2);
-    //     let new_v = (v & 0xFFFF_0000) | (new_cmd as u32);
-    //     command.write_volatile(new_v);
-    // }
-
-    // //bar 0
-    // let bar0 = 'bar0: {unsafe{
-    //     let bar0 = pci().pointer(device, 0x10).read_volatile();
-    //     println!("{bar0}");
-    //     if (bar0 & 0x1) != 0 {
-    //         // I/O BAR (rare on RISC-V virt). Not what we want.
-    //         break 'bar0 0;
-    //     }
-    //     let is_64 = ((bar0 >> 1) & 0x3) == 0x2;
-    //     let addr_lo = (bar0 & 0xFFFF_FFF0) as u64;
-
-    //     if is_64 {
-    //         let bar1 = pci().pointer(device, 0x14).read_volatile() as u64;
-    //         let addr = addr_lo | (bar1 << 32);
-    //         break 'bar0 addr;
-    //     } else {
-    //         break 'bar0 addr_lo;
-    //     }
-    // }};
-
-    // println!("{bar0:#08?}");
-
-    // println!("storage ID: {device:02x?}");
 
 
     Ok(())

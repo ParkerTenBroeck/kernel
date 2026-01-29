@@ -4,22 +4,22 @@ use crate::uart;
 
 
 #[derive(Clone, Copy)]
-pub struct Sout(fn(&[u8]));
+pub struct Sout(fn(&str));
 impl Write for Sout {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        (self.0)(s.as_bytes());
+        (self.0)(s);
         Ok(())
     }
 }
 
-pub static mut SOUT: Sout = Sout(uart::putb);
+pub static mut SOUT: Sout = Sout(uart::puts);
 
 /// .
 ///
 /// # Safety
 ///
 /// .
-pub unsafe fn set_sout(out: fn(&[u8])){
+pub unsafe fn set_sout(out: fn(&str)){
     unsafe{
         SOUT = Sout(out);
     }

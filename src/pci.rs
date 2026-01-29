@@ -1,3 +1,5 @@
+#![allow(clippy::missing_safety_doc)]
+
 use core::{cell::UnsafeCell, mem::MaybeUninit};
 
 use crate::{dtb::*, print, println};
@@ -10,7 +12,7 @@ pub struct PciBdf {
     pub func: u8,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct PCI{
     dev: *mut u8,
     dev_size: usize,
@@ -20,20 +22,66 @@ pub struct PCI{
     size_cells: u32,
     interrupt_cells: u32,
     address_cells: u32,
+
+    mm_io_reg: [u32; 2],
+    mm_32_reg: [u32; 2],
+    mm_64_reg: [u64; 2],
+
+    mm_io_bump: u32,
+    mm_32_bump: u32,
+    mm_64_bump: u64,
+}
+
+mycelium_bitfield::bitfield! {
+    #[derive(Eq, PartialEq)]
+    pub struct CommandRegister<u16> {
+        pub const IO_SPACE: bool;
+        pub const MEMORY_SPACE: bool;
+        pub const BUS_MASTER: bool;
+        pub const SPECIAL_CYCLES: bool;
+        pub const MRW_INV: bool;
+        pub const VGA_PALETTE_SNOOP: bool;
+        pub const PAIRITY_ERR_RESP: bool;
+        pub const OARUTY_ERR_RESP: bool;
+        pub const _RESERVED0: bool;
+        pub const SERR_ENABLE: bool;
+        pub const FAST_BTB_ENABLE: bool;
+        pub const INTERRUPT_DISABLE: bool;
+        const _RESERVED1 = 5;
+    }
+}
+
+mycelium_bitfield::bitfield! {
+    #[derive(Eq, PartialEq)]
+    pub struct StatusRegister<u16> {
+        pub const _RESERVED0 = 2;
+        pub const INTR_STATUS: bool;
+        pub const CAPABILITIES_LIST: bool;
+        pub const COMPAT_66_MHZ: bool;
+        pub const _RESERVED1: bool;
+        pub const FAST_BTB_COMPAT: bool;
+        pub const MASTER_DATA_PAIRTY_ERROR: bool;
+        pub const DEVSEL_TIMING = 2;
+        pub const SIGNALED_TARGET_ABORT: bool;
+        pub const RECEIVED_TARGET_ABORT: bool;
+        pub const RECEIVED_MASTER_ABORT: bool;
+        pub const SIGNALED_SYSTEM_ERROR: bool;
+        pub const DETECTED_PAIRTY_ERROR: bool;
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Bar{
-    MMIO32(u32),
-    MMIO64(u64),
-    Io
+    MMIO32(u32, bool),
+    MMIO64(u64, bool),
+    IO(u32)
 }
 impl Bar {
-    pub fn expect_mmio(self) -> usize {
+    pub fn address(self) -> usize {
         match self{
-            Bar::MMIO32(addr) => addr.try_into().unwrap(),
-            Bar::MMIO64(addr) => addr.try_into().unwrap(),
-            Bar::Io => panic!("expected mmio not io"),
+            Bar::MMIO32(addr, _) => addr.try_into().unwrap(),
+            Bar::MMIO64(addr, _) => addr.try_into().unwrap(),
+            Bar::IO(addr) => addr.try_into().unwrap(),
         }
     }
 }
@@ -93,7 +141,7 @@ impl PCI {
         }
     }
 
-    pub fn find_device_vendor(&self, vendor: u16) -> Option<(PciBdf, u16)>{
+    pub fn find_device_vendor(&self, vendor: u16, device: u16) -> Option<(PciBdf, u16)>{
         for bus in self.bus_range_inc[0]..=self.bus_range_inc[1]{
             for dev in 0..32{
                 for func in 0..8{
@@ -109,7 +157,7 @@ impl PCI {
                         continue;
                     }
 
-                    if vid == vendor {
+                    if vid == vendor && device == did {
                         return Some((bdf, did));
                     }
                 }
@@ -118,30 +166,138 @@ impl PCI {
         None
     }
 
-    /// .
-    ///
-    /// # Safety
-    ///
-    /// .
+    pub unsafe fn read_cmd_status(&self, device: PciBdf) -> (StatusRegister, CommandRegister) {
+        let v = unsafe{self.pointer(device, 0x04).read_volatile()};
+        let cmd = (v & 0xFFFF) as u16;
+        let status = ((v >> 16) & 0xFFFF) as u16;
+        (StatusRegister::from_bits(status), CommandRegister::from_bits(cmd))
+    }
+
+    pub unsafe fn write_cmd_status(&self, device: PciBdf, cmd: CommandRegister) {
+        let reg = self.pointer(device, 0x04);
+        let v = unsafe{reg.read_volatile()};
+        let v = (v & 0xFFFF_0000) | cmd.bits() as u32;
+        unsafe{reg.write_volatile(v)}
+    }
+
+    
     pub unsafe fn read_bar(&self, device: PciBdf, bar: u8) -> Bar{
         let off = 0x10 + (bar as usize) * 4;
         let lo = unsafe {self.pointer(device, off).read_volatile()};
         let is_io = (lo & 0x1) != 0;
         if is_io {
-            // I/O BAR (not usable on RISC-V)
-            return Bar::Io;
+            return Bar::IO(lo&!0x3);
         }
 
         let bar_type = (lo >> 1) & 0x3;
         let is_64 = bar_type == 0x2;
+        let prefetchable = lo & 0b1000 != 0;
 
         let addr_lo = (lo & 0xFFFF_FFF0) as u64;
 
         if is_64 {
             let hi = unsafe { self.pointer(device, off+4).read_volatile() } as u64;
-            Bar::MMIO64(addr_lo | (hi << 32))
+            Bar::MMIO64(addr_lo | (hi << 32), prefetchable)
         } else {
-            Bar::MMIO32(addr_lo as u32)
+            Bar::MMIO32(addr_lo as u32, prefetchable)
+        }
+    }
+
+    pub unsafe fn bar_alignment(&self, device: PciBdf, bar: u8) -> (u64, Bar){
+        unsafe{
+            let value = self.read_bar(device, bar);
+            
+            let off = 0x10 + (bar as usize) * 4;
+            let align = match value {
+                Bar::MMIO64(_, _) => {
+                    self.pointer(device, off).write_volatile(0xFFFFFFFF);
+                    self.pointer(device, off+4).write_volatile(0xFFFFFFFF);
+                
+                    self.pointer(device, off).read_volatile() as u64 & !0b1111 |
+                    ((self.pointer(device, off+4).read_volatile() as u64) << 32)
+                }
+                Bar::MMIO32(_, _) => {
+                    self.pointer(device, off).write_volatile(0xFFFFFFFF);
+                    self.pointer(device, off).read_volatile() as i32 as i64 as u64  & !0b1111
+                }
+                Bar::IO(_) => {
+                    self.pointer(device, off).write_volatile(0xFFFFFFFF);
+                    self.pointer(device, off).read_volatile() as i32 as i64 as u64 & !0b11
+                }
+            };
+
+            self.write_bar(device, bar, value);
+
+            (align, value)
+        }
+    }
+
+    pub unsafe fn allocate_bar(&mut self, device: PciBdf, bar: u8){
+        match unsafe {self.bar_alignment(device, bar)} {
+            (align, Bar::MMIO32(_, b)) => {
+                let align = 1u32<<(align.trailing_zeros());
+                let addr = self.mm_32_bump+self.mm_32_reg[0];
+                let alignment_fix = (align-(addr&!(1-align)))&!(1-align);
+                let addr = addr+alignment_fix;
+                
+                let offset = align+alignment_fix;
+                self.mm_32_bump += offset;
+                if self.mm_32_bump > self.mm_32_reg[1]{
+                    panic!()
+                }
+                println!("Allocated {align:#08x} sized region at {addr:#08x} for 32 bit mmio bar {bar} dev {device:?}");
+                unsafe{
+                    self.write_bar(device, bar, Bar::MMIO32(addr, b));
+                }
+            },
+            (align, Bar::MMIO64(_, b)) => {
+                let align = 1u64<<(align.trailing_zeros());
+                let addr = self.mm_64_bump+self.mm_64_reg[0];
+                let alignment_fix = (align-(addr&!(1-align)))&!(1-align);
+                let addr = addr+alignment_fix;
+                
+                let offset = align+alignment_fix;
+                self.mm_64_bump += offset;
+                if self.mm_64_bump > self.mm_64_reg[1]{
+                    panic!()
+                }
+                println!("Allocated {align:#08x} sized region at {addr:#08x} for 64 bit mmio bar {bar} dev {device:?}");
+                unsafe{
+                    self.write_bar(device, bar, Bar::MMIO64(addr, b));
+                }
+            },
+            (align, Bar::IO(_)) => {
+                let align = 1u32<<(align.trailing_zeros());
+                let addr = self.mm_io_bump+self.mm_io_reg[0];
+                let alignment_fix = (align-(addr&!(1-align)))&!(1-align);
+                let addr = addr+alignment_fix;
+                
+                let offset = align+alignment_fix;
+                self.mm_io_bump += offset;
+                if self.mm_io_bump > self.mm_io_reg[1]{
+                    panic!("IO {align:#x}")
+                }
+                println!("Allocated {align:#08x} sized region at {addr:#08x} for io bar {bar} dev {device:?}");
+                unsafe{
+                    self.write_bar(device, bar, Bar::IO(addr));
+                }
+            },
+        }   
+    }
+
+    pub unsafe fn write_bar(&self, device: PciBdf, bar: u8, value: Bar){
+        let off = 0x10 + (bar as usize) * 4;
+        unsafe{
+            match value{
+                Bar::MMIO32(offset, prefetchable) => self.pointer(device, off).write_volatile(offset&!0b1111 | ((prefetchable as u32) << 3) | 0b100),
+                Bar::IO(offset) => {
+                    self.pointer(device, off).write_volatile(offset&!0b11 | 0b1);
+                },
+                Bar::MMIO64(offset, prefetchable) => {
+                    self.pointer(device, off).write_volatile(offset as u32&!0b1111 | ((prefetchable as u32) << 3) | 0b100);
+                    self.pointer(device, off+4).write_volatile((offset >> 32) as u32)
+                },
+            }
         }
     }
 
@@ -154,9 +310,9 @@ struct PCIWrapper(UnsafeCell<MaybeUninit<PCI>>);
 unsafe impl Sync for PCIWrapper{}
 static PCI: PCIWrapper = PCIWrapper(UnsafeCell::new(MaybeUninit::zeroed()));
 
-pub fn pci() -> &'static PCI{
+pub fn pci() -> &'static mut PCI{
     unsafe{
-        PCI.0.get().as_ref().unwrap_unchecked().assume_init_ref()
+        PCI.0.get().as_mut().unwrap_unchecked().assume_init_mut()
     }
 }
 
@@ -172,7 +328,28 @@ pub fn init(dtb: &Dtb<'_>) -> Result<(), DtbError> {
     let interrupt_cells = props.expect(b"#interrupt-cells")?.u32()?;
     let address_cells = props.expect(b"#address-cells")?.u32()?;
 
+    assert!(size_cells == 2);
+    assert!(interrupt_cells == 1);
+    assert!(address_cells == 3);
+
     let [bus_start, bus_end] = props.expect(b"bus-range")?.u32_array::<2>()?;
+
+    let mut stream = props.expect(b"ranges")?;
+    let (addr_io, start_io, size_io) = (
+        stream.u32_array::<3>()?,
+        stream.u64()?,
+        stream.u64()?
+    );
+    let (addr_32, start_32, size_32) = (
+        stream.u32_array::<3>()?,
+        stream.u64()?,
+        stream.u64()?
+    );
+    let (addr_64, start_64, size_64) = (
+        stream.u32_array::<3>()?,
+        stream.u64()?,
+        stream.u64()?
+    );
 
     unsafe {
         let pci = PCI { 
@@ -181,8 +358,28 @@ pub fn init(dtb: &Dtb<'_>) -> Result<(), DtbError> {
             bus_range_inc: [bus_start as u8, bus_end as u8], 
             size_cells, 
             interrupt_cells, 
-            address_cells
+            address_cells,
+
+            mm_io_reg: [start_io.try_into().unwrap(), size_io.try_into().unwrap()],
+            mm_32_reg: [start_32.try_into().unwrap(), size_32.try_into().unwrap()],
+            mm_64_reg: [start_64, size_64],
+            
+            mm_io_bump: 0,
+            mm_32_bump: 0,
+            mm_64_bump: 0,
         };
+
+
+        let device = crate::pci::PciBdf { bus: 0, dev: 0, func: 0 };
+        let (_, cmd) = pci.read_cmd_status(device) ;
+        pci.write_cmd_status(device, 
+            *cmd.clone()
+            .set(CommandRegister::IO_SPACE, true)
+            .set(CommandRegister::MEMORY_SPACE, true)
+        );
+
+        println!("{pci:#x?}");
+        
         PCI.0.get().write(MaybeUninit::new(pci)); 
     }
     

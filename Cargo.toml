@@ -13,6 +13,7 @@ lto = true
 codegen-units = 1
 
 [dependencies]
+mycelium-bitfield = "*"
 
 [build-dependencies]
 cc = "1"
