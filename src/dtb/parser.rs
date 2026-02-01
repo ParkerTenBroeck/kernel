@@ -122,19 +122,19 @@ impl<'a> DtbNodePropertyParser<'a> {
         }
     }
 
-    pub fn find(mut self, name: &[u8]) -> Result<Option<ByteStream<'a>>, DtbError>{
-        while let Some(prop) = self.next()?{
-            if prop.name.to_bytes() == name{
-                return Ok(Some(prop.data))
+    pub fn find(mut self, name: &[u8]) -> Result<Option<ByteStream<'a>>, DtbError> {
+        while let Some(prop) = self.next()? {
+            if prop.name.to_bytes() == name {
+                return Ok(Some(prop.data));
             }
         }
         Ok(None)
     }
 
-    pub fn expect(mut self, name: &[u8]) -> Result<ByteStream<'a>, DtbError>{
-        while let Some(prop) = self.next()?{
-            if prop.name.to_bytes() == name{
-                return Ok(prop.data)
+    pub fn expect(mut self, name: &[u8]) -> Result<ByteStream<'a>, DtbError> {
+        while let Some(prop) = self.next()? {
+            if prop.name.to_bytes() == name {
+                return Ok(prop.data);
             }
         }
         Err(DtbError::ExpectedProperty)

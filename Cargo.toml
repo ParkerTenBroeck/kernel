@@ -14,7 +14,8 @@ codegen-units = 1
 
 [dependencies]
 mycelium-bitfield = "*"
+ansi = {version = "*", git="https://github.com/ParkerTenBroeck/ansi"}
+riscv = "*"
 
 [build-dependencies]
-cc = "1"
-
+image = "*"

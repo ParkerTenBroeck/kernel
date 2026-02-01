@@ -1,7 +1,4 @@
-use core::{fmt::Write};
-
-use crate::uart;
-
+use core::fmt::Write;
 
 #[derive(Clone, Copy)]
 pub struct Sout(fn(&str));
@@ -12,24 +9,23 @@ impl Write for Sout {
     }
 }
 
-pub static mut SOUT: Sout = Sout(uart::puts);
+pub static mut SOUT: Sout = Sout(|_| {});
 
-/// .
-///
-/// # Safety
-///
-/// .
-pub unsafe fn set_sout(out: fn(&str)){
-    unsafe{
+pub fn set_sout(out: fn(&str)) {
+    unsafe {
         SOUT = Sout(out);
     }
+}
+
+pub fn sout() -> Sout {
+    unsafe { SOUT }
 }
 
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => {{
         use core::fmt::Write;
-        write!(unsafe {$crate::sout::SOUT}, $($arg)*).unwrap();
+        write!($crate::std::stdio::sout(), $($arg)*).unwrap();
     }};
 }
 

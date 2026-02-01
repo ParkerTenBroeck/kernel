@@ -3,6 +3,12 @@
 }:
 let
   overrides = (builtins.fromTOML (builtins.readFile ./rust-toolchain.toml));
+
+  riscv-cross = import pkgs.path {
+    crossSystem = {
+      config = "riscv64-none-elf";#"riscv64-unknown-linux-musl";#"riscv64-none-elf";
+    };
+  };
 in
 pkgs.callPackage (
   {
@@ -18,6 +24,7 @@ pkgs.callPackage (
       rustPlatform.bindgenHook
       pkgs.qemu
       pkgs.xxd
+      riscv-cross.stdenv.cc
     ];
     # libraries here
     buildInputs =

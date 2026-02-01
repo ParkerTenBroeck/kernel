@@ -6,11 +6,13 @@ static PANICKED: AtomicBool = AtomicBool::new(false);
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    if PANICKED.swap(true, core::sync::atomic::Ordering::SeqCst){
-        loop{
-            arch::wfi();
-        }
+    crate::std::stdio::set_sout(|str| {
+        crate::uart::uart().write_str(str);
+    });
+    if PANICKED.swap(true, core::sync::atomic::Ordering::SeqCst) {
+        arch::halt()
     }
     print!("\nKERNEL PANIC: {info}");
-    syscon::poweroff();
+    // syscon::poweroff();
+    arch::halt()
 }

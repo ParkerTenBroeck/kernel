@@ -23,7 +23,7 @@ qemu-system-riscv64
   
   -monitor vc 
   -display gtk 
-  -device bochs-display,id=vgadev
+  -device VGA,id=vgadev
 
   -chardev vc,id=pci_uart 
   -device pci-serial,chardev=pci_uart

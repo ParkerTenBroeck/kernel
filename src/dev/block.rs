@@ -1,34 +1,41 @@
-
-use crate::{dtb::*, pci::pci, print, println};
+use crate::{dtb::*, pci::pci, println};
 
 #[derive(Debug, Clone, Copy)]
-pub enum Width{
+pub enum Width {
     U8,
     U16,
     U32,
 }
 
 #[derive(Debug)]
-pub struct Flash{
+pub struct Flash {
     base: *mut u8,
     size: usize,
     width: Width,
 }
 
-impl Flash{
-    pub unsafe fn write_u8_word(&mut self, addr: usize, val: u8){
-        unsafe{
-            match self.width{
+impl Flash {
+    pub unsafe fn write_u8_word(&mut self, addr: usize, val: u8) {
+        unsafe {
+            match self.width {
                 Width::U8 => self.base.cast::<u8>().add(addr).write_volatile(val),
-                Width::U16 => self.base.cast::<u16>().add(addr).write_volatile(val as u16 * 0x0101),
-                Width::U32 => self.base.cast::<u32>().add(addr).write_volatile(val as u32 * 0x0101_0101),
+                Width::U16 => self
+                    .base
+                    .cast::<u16>()
+                    .add(addr)
+                    .write_volatile(val as u16 * 0x0101),
+                Width::U32 => self
+                    .base
+                    .cast::<u32>()
+                    .add(addr)
+                    .write_volatile(val as u32 * 0x0101_0101),
             }
         }
     }
 
-    pub unsafe fn write_u8(&mut self, addr: usize, val: u8){
-        unsafe{
-            match self.width{
+    pub unsafe fn write_u8(&mut self, addr: usize, val: u8) {
+        unsafe {
+            match self.width {
                 Width::U8 => self.base.add(addr).write_volatile(val),
                 Width::U16 => self.base.add(addr).write_volatile(val),
                 Width::U32 => self.base.add(addr).write_volatile(val),
@@ -36,9 +43,9 @@ impl Flash{
         }
     }
 
-    pub unsafe fn read_word(&mut self, addr: usize) -> u32{
-        unsafe{
-            match self.width{
+    pub unsafe fn read_word(&mut self, addr: usize) -> u32 {
+        unsafe {
+            match self.width {
                 Width::U8 => self.base.cast::<u8>().add(addr).read_volatile() as u32,
                 Width::U16 => self.base.cast::<u16>().add(addr).read_volatile() as u32,
                 Width::U32 => self.base.cast::<u32>().add(addr).read_volatile(),
@@ -50,42 +57,42 @@ impl Flash{
 pub fn init(dtb: &Dtb<'_>) -> Result<(), DtbError> {
     println!("Initializing flash");
 
-    let node = dtb.find_compatable_nodes(b"cfi-flash")?.expect_one()?;
+    let node = dtb.root()?.find_compatable_nodes(b"cfi-flash")?.expect_one()?;
 
     let props = node.properties()?;
     let width = props.expect(b"bank-width")?.u32()?;
     let [base0, size0, base1, size1] = props.expect(b"reg")?.u64_array::<4>()?;
 
-    let width = match width{
+    let width = match width {
         1 => Width::U8,
         2 => Width::U16,
         4 => Width::U32,
-        _ => panic!("Invalid width")
+        _ => panic!("Invalid width"),
     };
 
-    let mut f0 = Flash{
-        base:  base0 as *mut u8,
+    let mut f0 = Flash {
+        base: base0 as *mut u8,
         size: size0 as usize,
-        width
+        width,
     };
 
-    let mut f1 = Flash{
-        base:  base1 as *mut u8,
+    let mut f1 = Flash {
+        base: base1 as *mut u8,
         size: size1 as usize,
-        width
+        width,
     };
 
     println!("{f0:#?}");
     println!("{f1:#?}");
-    
-    for (i, f) in [&mut f0, &mut f1].into_iter().enumerate(){
-        unsafe{
+
+    for (i, f) in [&mut f0, &mut f1].into_iter().enumerate() {
+        unsafe {
             f.write_u8_word(0x000055, 0x98);
 
             let q = f.read_word(0x10) as u8;
             let r = f.read_word(0x11) as u8;
             let y = f.read_word(0x12) as u8;
-            if q != b'Q' || r != b'R' || y != b'Y'{
+            if q != b'Q' || r != b'R' || y != b'Y' {
                 panic!("flash device {i} did not respond with 'qry'")
             }
 
@@ -98,10 +105,9 @@ pub fn init(dtb: &Dtb<'_>) -> Result<(), DtbError> {
 
     println!("Setting up PCI storage device");
 
-    let Some((device, id)) = pci().find_device_vendor(0x1af4, todo!()) else {
+    let Some((device, id)) = pci().find_device_vendor(0x1af4, 0x1000) else {
         panic!("storage device not found")
     };
-
 
     Ok(())
 }

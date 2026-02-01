@@ -1,8 +1,12 @@
+pub mod dump;
 pub mod parser;
 pub mod stream;
+pub mod verify;
 
 pub use parser::*;
 pub use stream::*;
+
+pub use dump::dump;
 
 use core::ffi::CStr;
 
@@ -53,7 +57,7 @@ pub struct Property<'a> {
 }
 
 impl<'a> Property<'a> {
-    pub fn new(name: &'a CStr, data: ByteStream<'a>) -> Self {
+    pub const fn new(name: &'a CStr, data: ByteStream<'a>) -> Self {
         Self { name, data }
     }
 }
@@ -65,10 +69,16 @@ impl DtbHeader {
 pub struct Dtb<'a>(&'a [u8]);
 
 impl<'a> Dtb<'a> {
-    pub fn from_slice(slice: &'a [u8]) -> Self {
-        Self(slice)
+    
+
+
+    pub const fn from_slice(slice: &'a [u8]) -> Result<Self, DtbError> {
+        Ok(Self(slice))
     }
 
+    /// # Safety
+    ///
+    /// `dtb` must point to a valid device tree
     pub unsafe fn from_ptr(dtb: *const u8) -> Result<Self, DtbError> {
         unsafe {
             let magic = u32::from_be_bytes(dtb.cast::<u32>().read().to_ne_bytes());
@@ -76,8 +86,8 @@ impl<'a> Dtb<'a> {
                 return Err(DtbError::InvalidMagic(magic));
             }
             let total_size = u32::from_be_bytes(dtb.add(4).cast::<u32>().read().to_ne_bytes());
-
-            Ok(Dtb(core::slice::from_raw_parts(dtb, total_size as usize)))
+            let total_size =  total_size.try_into().map_err(|_|DtbError::InvalidHeader)?;
+            Self::from_slice(core::slice::from_raw_parts(dtb, total_size))
         }
     }
 
@@ -149,15 +159,8 @@ impl<'a> Dtb<'a> {
         })
     }
 
-    pub fn find_compatable_nodes<'b, 'c>(
-        &self,
-        compatable: &'b [u8],
-    ) -> Result<CompatableNodeIter<'c>, DtbError>
-    where
-        'a: 'c,
-        'b: 'c,
-    {
-        Ok(CompatableNodeIter::new(self.struct_parser()?, compatable))
+    pub fn root(&self) -> Result<DtbNode<'a>, DtbError>{
+        Ok(DtbNode::new(DtbStructParser::new(self.struct_stream()?, self.strings()?)))
     }
 }
 
@@ -170,7 +173,7 @@ impl<'a> DtbNode<'a> {
     pub fn new(parser: DtbStructParser<'a>) -> Self {
         Self { parser }
     }
-    
+
     pub fn name(&self) -> Result<&'a CStr, DtbError> {
         let mut stream = self.parser.stream();
         stream.u32()?;
@@ -187,6 +190,17 @@ impl<'a> DtbNode<'a> {
             self.parser.strings(),
         )))
     }
+
+    pub fn find_compatable_nodes<'b, 'c>(
+        &self,
+        compatable: &'b [u8],
+    ) -> Result<CompatableNodeIter<'c>, DtbError>
+    where
+        'a: 'c,
+        'b: 'c,
+    {
+        Ok(CompatableNodeIter::new(self.parser, compatable))
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -200,11 +214,11 @@ impl<'a> CompatableNodeIter<'a> {
         Self { parser, compatable }
     }
 
-    pub fn expect_one(mut self) -> Result<DtbNode<'a>, DtbError>{
+    pub fn expect_one(mut self) -> Result<DtbNode<'a>, DtbError> {
         let node = self.next()?.ok_or(DtbError::ExpectedOneNode)?;
 
-        if self.next()?.is_some(){
-            return Err(DtbError::ExpectedOneNode)
+        if self.next()?.is_some() {
+            return Err(DtbError::ExpectedOneNode);
         }
         Ok(node)
     }
@@ -221,9 +235,7 @@ impl<'a> CompatableNodeIter<'a> {
                 Tok::Prop(Property { name, mut data }) if name.to_bytes() == b"compatible" => {
                     while let Ok(str) = data.cstr() {
                         if str.to_bytes() == self.compatable {
-                            return Ok(Some(DtbNode::new(
-                                entry.ok_or(DtbError::ByteStream)?,
-                            )));
+                            return Ok(Some(DtbNode::new(entry.ok_or(DtbError::ByteStream)?)));
                         }
                     }
                 }
