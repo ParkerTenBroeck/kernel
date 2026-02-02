@@ -11,16 +11,20 @@ pub fn early() {
     stdio::set_sout(|str| uart().write_str(str));
 }
 
-pub fn init(dtb: &Dtb) -> Result<(), DtbError> {
+pub fn init(dtb: &Dtb) {
     println!("initializing UART");
 
-    let node = dtb.root()?.find_compatable_nodes(b"ns16550a")?.expect_one()?;
+    let node = dtb
+        .nodes()
+        .compatible(b"ns16550a")
+        .next()
+        .expect("cannot find ns16550a compatable device");
 
-    let props = node.properties()?;
-    let _interrupts = props.expect(b"interrupts")?.u32()?;
-    let _interrupts_parent = props.expect(b"interrupt-parent")?.u32()?;
-    let clock_frequency = props.expect(b"clock-frequency")?.u32()?;
-    let [start, _size] = props.expect(b"reg")?.u64_array::<2>()?;
+    let props = node.properties();
+    let _interrupts = props.expect_value(b"interrupts", ByteStream::u32);
+    let _interrupts_parent = props.expect_value(b"interrupt-parent", ByteStream::u32);
+    let clock_frequency = props.expect_value(b"clock-frequency", ByteStream::u32);
+    let [start, _size] = props.expect_value(b"reg", ByteStream::u64_array::<2>);
 
     println!("{start:#x?}");
 
@@ -60,8 +64,6 @@ pub fn init(dtb: &Dtb) -> Result<(), DtbError> {
     //     uart.init(1);
     //     _ = uart.write_str("Uart Hello\n");
     // }
-
-    Ok(())
 }
 
 /// read: RBR, write: THR, when DLAB=1: DLL

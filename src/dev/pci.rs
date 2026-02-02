@@ -347,30 +347,39 @@ pub fn pci() -> &'static mut PCI {
     unsafe { PCI.0.get().as_mut().unwrap_unchecked().assume_init_mut() }
 }
 
-pub fn init(dtb: &Dtb<'_>) -> Result<(), DtbError> {
+pub fn init(dtb: &Dtb<'_>) {
     println!("Initializing PCI");
 
-    let node = dtb.root()?
-        .find_compatable_nodes(b"pci-host-ecam-generic")?
-        .expect_one()?;
+    let node = dtb
+        .nodes()
+        .compatible(b"pci-host-ecam-generic")
+        .next()
+        .expect("no compatible devices for pci-host-ecam-generic");
 
-    let props = node.properties()?;
-    let [start, size] = props.expect(b"reg")?.u64_array::<2>()?;
+    let props = node.properties();
+    let [start, size] = props.expect_value(b"reg", ByteStream::u64_array::<2>);
 
-    let size_cells = props.expect(b"#size-cells")?.u32()?;
-    let interrupt_cells = props.expect(b"#interrupt-cells")?.u32()?;
-    let address_cells = props.expect(b"#address-cells")?.u32()?;
+    let size_cells = props.expect_value(b"#size-cells", ByteStream::u32);
+    let interrupt_cells = props.expect_value(b"#interrupt-cells", ByteStream::u32);
+    let address_cells = props.expect_value(b"#address-cells", ByteStream::u32);
 
     assert!(size_cells == 2);
     assert!(interrupt_cells == 1);
     assert!(address_cells == 3);
 
-    let [bus_start, bus_end] = props.expect(b"bus-range")?.u32_array::<2>()?;
+    let [bus_start, bus_end] = props.expect_value(b"bus-range", ByteStream::u32_array::<2>);
 
-    let mut stream = props.expect(b"ranges")?;
-    let (_addr_io, start_io, size_io) = (stream.u32_array::<3>()?, stream.u64()?, stream.u64()?);
-    let (_addr_32, start_32, size_32) = (stream.u32_array::<3>()?, stream.u64()?, stream.u64()?);
-    let (_addr_64, start_64, size_64) = (stream.u32_array::<3>()?, stream.u64()?, stream.u64()?);
+    let [
+        (_addr_io, start_io, size_io),
+        (_addr_32, start_32, size_32),
+        (_addr_64, start_64, size_64),
+    ] = props.expect_value(b"ranges", |stream| {
+        Some([
+            (stream.u32_array::<3>()?, stream.u64()?, stream.u64()?),
+            (stream.u32_array::<3>()?, stream.u64()?, stream.u64()?),
+            (stream.u32_array::<3>()?, stream.u64()?, stream.u64()?),
+        ])
+    });
 
     unsafe {
         let pci = PCI {
@@ -411,6 +420,4 @@ pub fn init(dtb: &Dtb<'_>) -> Result<(), DtbError> {
     println!("Initialized PCI");
 
     pci().enumerate_devices();
-
-    Ok(())
 }

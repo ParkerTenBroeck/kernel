@@ -82,11 +82,11 @@ pub unsafe extern "C" fn rust_main(hart_id: usize, dtb_ptr: *const u8) -> ! {
     let dtb = unsafe { Dtb::from_ptr(dtb_ptr).unwrap() };
     _ = dtb::dump(stdio::sout(), &dtb);
 
-    pci::init(&dtb).unwrap();
+    pci::init(&dtb);
 
     test_pci();
 
-    uart::init(&dtb).unwrap();
+    uart::init(&dtb);
 
     vga::init(1920, 1080);
     display::update_buffer(vga::framebuffer());
@@ -99,7 +99,7 @@ pub unsafe extern "C" fn rust_main(hart_id: usize, dtb_ptr: *const u8) -> ! {
     }
     println!();
 
-    syscon::init(&dtb).unwrap();
+    syscon::init(&dtb);
 
     arch::mtrap::init(&dtb);
     unsafe { core::arch::asm!("ecall", in("a7") 5) }

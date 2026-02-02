@@ -1,115 +1,93 @@
-use super::DtbError;
-
 use core::ffi::CStr;
 
 #[derive(Clone, Copy, Debug)]
 pub struct ByteStream<'a>(&'a [u8], usize);
+
+macro_rules! integer {
+    ($self:ident, $name: ident, $name_arr: ident, $ty:ty) => {
+        pub const fn $name(&mut self) -> Option<$ty> {
+            match self.chunk(){
+                Some(bytes) => Some(<$ty>::from_be_bytes(bytes)),
+                None => None,
+            }
+        }
+
+        pub const fn $name_arr<const N: usize>(&mut $self) -> Option<[$ty; N]> {
+            let backup = *$self;
+            let mut array = [0; N];
+            let mut i = 0;
+            while i < N {
+                array[i] = match $self.$name(){
+                    Some(value) => value,
+                    None => {
+                        *$self = backup;
+                        return None;
+                    }
+                };
+                i += 1;
+            }
+            Some(array)
+        }
+    };
+}
 
 impl<'a> ByteStream<'a> {
     pub const fn new(buf: &'a [u8], offset: usize) -> Self {
         Self(buf, offset)
     }
 
-    pub fn limit(self, size: usize) -> Result<Self, DtbError> {
-        match self.0.get(..size) {
-            Some(limited) => Ok(Self(limited, self.1)),
-            None => Err(DtbError::ByteStream),
-        }
-    }
-
-    pub const fn chunk_ref<const N: usize>(&mut self) -> Result<&[u8; N], DtbError> {
+    pub const fn chunk_ref<const N: usize>(&mut self) -> Option<&[u8; N]> {
         let Some((chunk, rem)) = self.0.split_first_chunk::<N>() else {
-            return Err(DtbError::ByteStream);
+            return None;
         };
         self.0 = rem;
         self.1 += N;
-        Ok(chunk)
+        Some(chunk)
     }
 
-    pub const fn chunk<const N: usize>(&mut self) -> Result<[u8; N], DtbError> {
+    pub const fn chunk<const N: usize>(&mut self) -> Option<[u8; N]> {
         self.chunk_ref().copied()
     }
 
-    pub fn u8(&mut self) -> Result<u8, DtbError> {
-        self.chunk::<1>().map(|c| c[0])
-    }
+    integer!(self, u8, u8_array, u8);
+    integer!(self, u16, u16_array, u16);
+    integer!(self, u32, u32_array, u32);
+    integer!(self, u64, u64_array, u64);
+    integer!(self, u128, u128_array, u128);
 
-    pub fn u8_array<const N: usize>(&mut self) -> Result<[u8; N], DtbError> {
-        let mut array = [0; N];
-        for el in &mut array {
-            *el = self.u8()?
-        }
-        Ok(array)
-    }
-
-    pub fn u16(&mut self) -> Result<u16, DtbError> {
-        self.chunk().map(u16::from_be_bytes)
-    }
-
-    pub fn u16_array<const N: usize>(&mut self) -> Result<[u16; N], DtbError> {
-        let mut array = [0; N];
-        for el in &mut array {
-            *el = self.u16()?;
-        }
-        Ok(array)
-    }
-
-    pub fn u32(&mut self) -> Result<u32, DtbError> {
-        self.chunk().map(u32::from_be_bytes)
-    }
-
-    pub fn u32_array<const N: usize>(&mut self) -> Result<[u32; N], DtbError> {
-        let mut array = [0; N];
-        for el in &mut array {
-            *el = self.u32()?;
-        }
-        Ok(array)
-    }
-
-    pub fn u64(&mut self) -> Result<u64, DtbError> {
-        self.chunk().map(u64::from_be_bytes)
-    }
-
-    pub fn u64_array<const N: usize>(&mut self) -> Result<[u64; N], DtbError> {
-        let mut array = [0; N];
-        for el in &mut array {
-            *el = self.u64()?;
-        }
-        Ok(array)
-    }
-
-    pub fn align(&mut self, align: usize) -> Result<(), DtbError> {
+    pub const fn align(&mut self, align: usize) {
         let offset = (align - (self.1 & (align - 1))) & (align - 1);
-        self.bytes(offset).map(|_| ())
+        if self.bytes(offset).is_none() {
+            self.1 += offset;
+            self.0 = &[];
+        }
     }
 
-    pub const fn cstr(&mut self) -> Result<&'a CStr, DtbError> {
-        let Ok(str) = CStr::from_bytes_until_nul(self.0) else{
-            return Err(DtbError::ByteStream)
+    pub const fn cstr(&mut self) -> Option<&'a CStr> {
+        let Ok(str) = CStr::from_bytes_until_nul(self.0) else {
+            return None;
         };
         self.0 = self.0.split_at(str.count_bytes() + 1).1;
         self.1 += str.count_bytes() + 1;
-        Ok(str)
+        Some(str)
     }
 
-    pub const fn bytes(&mut self, length: usize) -> Result<&'a [u8], DtbError> {
+    pub const fn bytes(&mut self, length: usize) -> Option<&'a [u8]> {
         let Some((arr, rem)) = self.0.split_at_checked(length) else {
-            return Err(DtbError::ByteStream);
+            return None;
         };
         self.0 = rem;
         self.1 += length;
-        Ok(arr)
+        Some(arr)
     }
 
-    pub fn contains_str(mut self, str: &[u8]) -> bool{
-        loop{
-            let Ok(next) = self.cstr() else {
-                return false;
-            };
-            if next.to_bytes() == str{
-                return true
+    pub fn contains_str(mut self, str: &[u8]) -> bool {
+        while let Some(next) = self.cstr() {
+            if next.to_bytes() == str {
+                return true;
             }
         }
+        false
     }
 
     pub const fn offset(&self) -> usize {

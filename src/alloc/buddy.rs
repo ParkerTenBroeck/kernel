@@ -52,7 +52,17 @@ impl Buddy {
         unsafe { self.free_order(data, layout.size(), order) }
     }
 
-    pub unsafe fn free_region(&mut self, data: *mut u8, size: usize) {}
+    /// # Safety
+    ///
+    /// .
+    pub unsafe fn free_region(&mut self, data: *mut u8, size: usize) {
+        unsafe{
+            let offset = data.align_offset(1<<MIN_SIZE_P2);
+            let data = data.byte_add(offset);
+            let size = size.saturating_sub(offset) & !((1<<MIN_SIZE_P2) - 1);
+            self.free_order(data, size, 0);
+        }
+    }
 
     pub fn alloc_order(&mut self, size: usize, order: usize) -> *mut u8 {
         if order > MAX_ORDER {
@@ -76,9 +86,9 @@ impl Buddy {
         if order > MAX_ORDER {
             panic!("Allocation order too large: {order} max {MAX_ORDER}")
         }
-
+        
         let align = 1 << (order + MIN_SIZE_P2);
-        let size = size.next_multiple_of(align);
+        let size = size & !((1<<(MIN_SIZE_P2)) - 1);
 
         for i in 0..size / align {
             unsafe {

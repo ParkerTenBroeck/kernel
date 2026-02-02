@@ -1,4 +1,7 @@
-use crate::{dtb::Dtb, println};
+use crate::{
+    dtb::{ByteStream, Dtb, DtbProperties},
+    println,
+};
 
 #[derive(Debug)]
 pub struct Region {
@@ -78,5 +81,21 @@ impl Default for KernelLayout {
 }
 
 pub fn init(dtb: &Dtb) {
-    println!("{:#x?}", KernelLayout::new());
+    let kernel_layout = KernelLayout::new();
+    println!("{:#x?}", kernel_layout);
+
+    let node = dtb.nodes().find(|node| {
+        node.properties()
+            .find(b"device_type")
+            .is_some_and(|v| v.contains_str(b"memory"))
+    }).expect("cannot find 'memory' device");
+
+    let [start, size] = node.properties().expect_value(b"reg", ByteStream::u64_array::<2>);
+
+    unsafe{
+        let mut buddy = crate::alloc::buddy::BUDDY.lock(); 
+        buddy.free_region(&raw const kernel_end as *mut u8, size as usize - kernel_layout.total.size);
+        buddy.print();
+    }
+
 }

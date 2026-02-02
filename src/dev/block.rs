@@ -54,14 +54,18 @@ impl Flash {
     }
 }
 
-pub fn init(dtb: &Dtb<'_>) -> Result<(), DtbError> {
+pub fn init(dtb: &Dtb<'_>) {
     println!("Initializing flash");
 
-    let node = dtb.root()?.find_compatable_nodes(b"cfi-flash")?.expect_one()?;
+    let node = dtb
+        .nodes()
+        .compatible(b"cfi-flash")
+        .next()
+        .expect("no compatible devices for cfi-flash");
 
-    let props = node.properties()?;
-    let width = props.expect(b"bank-width")?.u32()?;
-    let [base0, size0, base1, size1] = props.expect(b"reg")?.u64_array::<4>()?;
+    let props = node.properties();
+    let width = props.expect_value(b"bank-width", ByteStream::u32);
+    let [base0, size0, base1, size1] = props.expect_value(b"reg", ByteStream::u64_array::<4>);
 
     let width = match width {
         1 => Width::U8,
@@ -108,6 +112,4 @@ pub fn init(dtb: &Dtb<'_>) -> Result<(), DtbError> {
     let Some((device, id)) = pci().find_device_vendor(0x1af4, 0x1000) else {
         panic!("storage device not found")
     };
-
-    Ok(())
 }

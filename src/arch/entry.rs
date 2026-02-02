@@ -95,7 +95,7 @@ unsafe extern "C" fn s_mode_entry(_hart_id: usize, dtb_ptr: *const u8) -> ! {
     // }
     // println!();
 
-    // crate::dev::syscon::init(&dtb).unwrap();
+    crate::dev::syscon::init(&dtb);
 
     // //     arch::mtrap::init(&dtb);
     // //     unsafe{
