@@ -50,6 +50,7 @@ impl<'a> Iterator for DtbRecursivePropertyIter<'a> {
     type Item = Property<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
+
         loop {
             match self.0.next()? {
                 DtbToken::BeginNode(_) => self.1 += 1,
@@ -72,6 +73,7 @@ pub trait DtbProperties<'a>: Iterator<Item = Property<'a>> + Sized {
         None
     }
 
+    #[track_caller]
     fn expect(self, name: &[u8]) -> ByteStream<'a> {
         match self.find(name) {
             Some(some) => some,
@@ -92,6 +94,7 @@ pub trait DtbProperties<'a>: Iterator<Item = Property<'a>> + Sized {
         None
     }
 
+    #[track_caller]
     fn expect_value<T>(
         self,
         name: &[u8],

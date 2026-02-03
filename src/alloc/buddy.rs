@@ -14,11 +14,34 @@ pub struct Buddy {
     free_area: [Option<NonNull<Block>>; MAX_ORDER],
 }
 
-// TODO actually make this thread safe
 unsafe impl Send for Buddy {}
 
 struct Block {
     next: Option<NonNull<Block>>,
+}
+
+const fn order_size(order: usize) -> usize{
+    order_align(order)
+}
+
+const fn order_align(order: usize) -> usize{
+    1 << (order + MIN_SIZE_P2)
+}
+
+const fn bottom_mask(order: usize) -> usize{
+    order_align(order)-1
+}
+
+const fn top_mask(order: usize) -> usize{
+    !bottom_mask(order)
+}
+
+fn layout_order(layout: Layout) -> usize{
+    MIN_SIZE_P2.min(layout.align().trailing_zeros() as usize) - MIN_SIZE_P2
+}
+
+fn order_of(value: usize) -> usize{
+    value.trailing_zeros().min(MIN_SIZE_P2 as u32) as usize - MIN_SIZE_P2
 }
 
 impl Buddy {
@@ -40,28 +63,26 @@ impl Buddy {
     }
 
     pub fn alloc(&mut self, layout: Layout) -> *mut u8 {
-        let order = MIN_SIZE_P2.min(layout.align().trailing_zeros() as usize) - MIN_SIZE_P2;
-        self.alloc_order(layout.size(), order - MIN_SIZE_P2)
+        self.alloc_order(layout.size(), layout_order(layout))
     }
 
     /// # Safety
     ///
     /// .
+    #[allow(unsafe_op_in_unsafe_fn)]
     pub unsafe fn free(&mut self, data: *mut u8, layout: Layout) {
-        let order = MIN_SIZE_P2.min(layout.align().trailing_zeros() as usize) - MIN_SIZE_P2;
-        unsafe { self.free_order(data, layout.size(), order) }
+        self.free_order(data, layout.size(), layout_order(layout)) 
     }
 
     /// # Safety
     ///
     /// .
+    #[allow(unsafe_op_in_unsafe_fn)]
     pub unsafe fn free_region(&mut self, data: *mut u8, size: usize) {
-        unsafe{
-            let offset = data.align_offset(1<<MIN_SIZE_P2);
-            let data = data.byte_add(offset);
-            let size = size.saturating_sub(offset) & !((1<<MIN_SIZE_P2) - 1);
-            self.free_order(data, size, 0);
-        }
+        let offset = data.align_offset(order_align(0));
+        let data = data.byte_add(offset);
+        let size = size.saturating_sub(offset) & top_mask(0);
+        self.free_order(data, size, 0);
     }
 
     pub fn alloc_order(&mut self, size: usize, order: usize) -> *mut u8 {
@@ -72,7 +93,13 @@ impl Buddy {
         //TODO maybe find a better way of doing this
         let size = size.next_multiple_of(1 << order).max(align);
 
-        for start in &self.free_area[order..] {}
+        for start in &self.free_area[order..] {
+            if start.is_none(){
+                continue;
+            }
+
+
+        }
         panic!(
             "Unable to allocate {size} bytes of alignment 2^{}",
             order + MIN_SIZE_P2
@@ -82,26 +109,26 @@ impl Buddy {
     /// # Safety
     ///
     /// .
-    pub unsafe fn free_order(&mut self, data: *mut u8, size: usize, order: usize) {
+    pub unsafe fn free_order(&mut self, mut data: *mut u8, size: usize, order: usize) {
         if order > MAX_ORDER {
             panic!("Allocation order too large: {order} max {MAX_ORDER}")
         }
-        
-        let align = 1 << (order + MIN_SIZE_P2);
-        let size = size & !((1<<(MIN_SIZE_P2)) - 1);
 
-        for i in 0..size / align {
+        let mut size = size & top_mask(0);
+        while size > 0 {
+            let order = order_of(data as usize).min(size);
             unsafe {
-                self.free_order_exact(data.byte_add(i * align), order);
+                self.free_order_exact(data, order);
+                data = data.byte_add(order_size(order));
             }
+            size -= order_size(order);
         }
     }
 
     unsafe fn free_order_exact(&mut self, data: *mut u8, mut order: usize) {
-        let align = 1 << (order + MIN_SIZE_P2);
         let mut block = NonNull::new(data).expect("Null Block").cast::<Block>();
 
-        if block.as_ptr() as usize & (align - 1) != 0 {
+        if block.as_ptr() as usize & bottom_mask(order) != 0 {
             panic!(
                 "Unaligned block expected alignment of order 2^{}: {block:?}",
                 order + MIN_SIZE_P2
@@ -109,16 +136,12 @@ impl Buddy {
         }
 
         'outer: for mut current_ptr_place in &mut self.free_area[order..] {
-            // ensure "next" for the current block is None
-            unsafe {
-                block.write(Block { next: None });
-            }
 
             loop {
-                let align = 1 << (order + MIN_SIZE_P2);
 
                 let Some(current_ptr_value) = *current_ptr_place else {
                     // end of of free list
+                    unsafe{(*block.as_ptr()).next = None}
                     *current_ptr_place = Some(block);
                     break 'outer;
                 };
@@ -131,7 +154,7 @@ impl Buddy {
                     unsafe { &mut current_ptr_value.as_ptr().as_mut().unwrap_unchecked().next };
 
                 // combine two 'buddies' and try to merge higher up
-                if current_ptr_value.as_ptr() as usize == block.as_ptr() as usize ^ align {
+                if current_ptr_value.as_ptr() as usize == block.as_ptr() as usize ^ order_size(order) {
                     order += 1;
                     if order > MAX_ORDER {
                         panic!("Too large: {order} max {MAX_ORDER}")

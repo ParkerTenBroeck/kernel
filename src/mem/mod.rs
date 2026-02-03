@@ -16,6 +16,10 @@ impl Region {
             size: end as usize - start as usize,
         }
     }
+
+    pub fn address_range(&self) -> Range{
+        self.start as usize .. self.start as usize + self.size
+    }
 }
 
 #[derive(Debug)]
@@ -80,6 +84,42 @@ impl Default for KernelLayout {
     }
 }
 
+type Range = core::ops::Range<usize>;
+
+fn subtract_range(a: Range, b: Range) -> [Option<Range>; 2] {
+    // No overlap
+    if b.end <= a.start || b.start >= a.end {
+        return [Some(a), None];
+    }
+
+    // B fully covers A
+    if b.start <= a.start && b.end >= a.end {
+        return [None, None];
+    }
+
+    let mut out = [None, None];
+    let mut i = 0;
+
+    // Left remainder
+    if b.start > a.start {
+        out[i] = Some(Range {
+            start: a.start,
+            end: b.start.min(a.end),
+        });
+        i += 1;
+    }
+
+    // Right remainder
+    if b.end < a.end {
+        out[i] = Some(Range {
+            start: b.end.max(a.start),
+            end: a.end,
+        });
+    }
+
+    out
+}
+
 pub fn init(dtb: &Dtb) {
     let kernel_layout = KernelLayout::new();
     println!("{:#x?}", kernel_layout);
@@ -90,11 +130,21 @@ pub fn init(dtb: &Dtb) {
             .is_some_and(|v| v.contains_str(b"memory"))
     }).expect("cannot find 'memory' device");
 
-    let [start, size] = node.properties().expect_value(b"reg", ByteStream::u64_array::<2>);
+    let addr_cells = dtb.root().properties().expect_value(b"#address-cells", ByteStream::u32)*4;
+    let size_cells = dtb.root().properties().expect_value(b"#size-cells", ByteStream::u32)*4;
+    let reg_cells = [addr_cells, size_cells];
+
+    let [start, size] = node.properties().expect_value(b"reg", |stream|stream.usize_cells_arr(reg_cells));
 
     unsafe{
+        let mem = start..start+size;
+        
         let mut buddy = crate::alloc::buddy::BUDDY.lock(); 
-        buddy.free_region(&raw const kernel_end as *mut u8, size as usize - kernel_layout.total.size);
+        
+        for range in subtract_range(mem, kernel_layout.total.address_range()).into_iter().flatten(){
+            buddy.free_region(range.start as *mut u8, range.end-range.start);
+        }
+        
         buddy.print();
     }
 

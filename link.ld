@@ -41,6 +41,6 @@ SECTIONS
   _stack_start = .;
   PROVIDE(_stack_top = . + 0x20000); /* 128 KiB stack */
 
-  _kernel_end = .;
+  _kernel_end = . + 0x20000;
 }
 

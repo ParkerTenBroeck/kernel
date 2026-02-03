@@ -149,6 +149,7 @@ impl<'a> Dtb<'a> {
             let mut stream = structure;
             let mut level = 0;
             let mut past_properties = false;
+            let mut first = true;
             loop {
                 match stream.u32().ok_or(DtbError::InvalidStruct)? {
                     // begin node
@@ -158,6 +159,7 @@ impl<'a> Dtb<'a> {
                         level += 1;
                         past_properties = true;
                     }
+                    _ if first => return Err(DtbError::InvalidStruct),
                     // prop
                     0x03 if !past_properties => return Err(DtbError::InvalidStruct),
                     0x03 => {
@@ -187,6 +189,7 @@ impl<'a> Dtb<'a> {
                     0x09 => return Err(DtbError::InvalidStruct),
                     invalid => return Err(DtbError::InvalidStructTok(invalid)),
                 }
+                first = false;
             }
         }
 
@@ -243,15 +246,20 @@ impl<'a> Dtb<'a> {
     }
 
     pub fn root(&self) -> DtbNode<'a> {
-        let mut stream = self.structure;
-        _ = stream.u32();
-        let name = stream.cstr().unwrap_or_default();
-        stream.align(4);
-        DtbNode::new(name, DtbStructParser::new(self.structure, self.strings))
+        let mut body = DtbStructParser::new(self.structure, self.strings);
+        let name = match body.next(){
+            Some(DtbToken::BeginNode(name)) => name,
+            _ => c""
+        };
+        DtbNode::new(name, body)
     }
 
     pub fn nodes(&self) -> DtbRecursiveNodeIter<'a> {
         DtbRecursiveNodeIter::new(self.structure())
+    }
+
+    pub fn properties(&self) -> DtbRecursivePropertyIter<'a> {
+        DtbRecursivePropertyIter::new(self.structure())
     }
 
     pub fn header(&self) -> &DtbHeader {
@@ -284,5 +292,9 @@ impl<'a> DtbNode<'a> {
 
     pub fn properties(&self) -> DtbPropertyIter<'a> {
         DtbPropertyIter::new(self.body)
+    }
+
+    pub fn properties_recursive(&self) -> DtbRecursivePropertyIter<'a> {
+        DtbRecursivePropertyIter::new(self.body)
     }
 }

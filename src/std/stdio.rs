@@ -34,3 +34,28 @@ macro_rules! println {
     () => { $crate::print!("\n") };
     ($($arg:tt)*) => { {$crate::print!($($arg)*); $crate::println!(); }};
 }
+
+
+#[macro_export]
+macro_rules! dbg {
+    () => {
+        $crate::println!("[{}:{}:{}]", $crate::file!(), $crate::line!(), $crate::column!())
+    };
+    ($val:expr $(,)?) => {
+        match $val {
+            tmp => {
+                $crate::println!("[{}:{}:{}] {} = {:#?}",
+                    core::file!(),
+                    core::line!(),
+                    core::column!(),
+                    core::stringify!($val),
+                    &&tmp as &dyn core::fmt::Debug,
+                );
+                tmp
+            }
+        }
+    };
+    ($($val:expr),+ $(,)?) => {
+        ($($crate::dbg!($val)),+,)
+    };
+}
