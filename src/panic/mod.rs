@@ -1,6 +1,6 @@
 use core::{panic::PanicInfo, sync::atomic::AtomicBool};
 
-use crate::{arch, print, syscon};
+use crate::{arch, print};
 
 static PANICKED: AtomicBool = AtomicBool::new(false);
 

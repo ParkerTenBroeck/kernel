@@ -101,7 +101,6 @@ pub unsafe extern "C" fn rust_main(hart_id: usize, dtb_ptr: *const u8) -> ! {
 
     syscon::init(&dtb);
 
-    arch::mtrap::init(&dtb);
     unsafe { core::arch::asm!("ecall", in("a7") 5) }
 
     // block::init(&dtb).unwrap();

@@ -1,7 +1,7 @@
 use core::{
     cell::UnsafeCell,
     ops::{Deref, DerefMut},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{ AtomicBool, Ordering},
 };
 
 pub struct RawSpinLock {
@@ -10,13 +10,17 @@ pub struct RawSpinLock {
 
 impl RawSpinLock {
     pub const fn new() -> Self {
+        
         Self {
             lock: AtomicBool::new(false),
         }
     }
 
+    #[track_caller]
     pub fn lock(&self) {
-        while self.lock.swap(true, Ordering::Acquire) {}
+        while self.lock.swap(true, Ordering::Acquire){
+            core::hint::spin_loop();
+        }
     }
 
     /// # Safety
@@ -86,6 +90,7 @@ mod critical {
     }
 
     impl<T: ?Sized> CriticalSpinLock<T> {
+        #[track_caller]
         pub fn lock(&self) -> CriticalSpinLockGuard<'_, T> {
             let ie = riscv::register::sstatus::read().sie();
             unsafe {

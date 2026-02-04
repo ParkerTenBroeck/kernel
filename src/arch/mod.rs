@@ -1,5 +1,4 @@
 pub mod entry;
-pub mod mtrap;
 pub mod page;
 pub mod strap;
 

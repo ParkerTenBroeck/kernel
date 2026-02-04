@@ -1,78 +1,69 @@
-use core::{arch::asm, fmt::Write};
 
-use crate::{dev::uart, dtb::Dtb, println, std::stdio};
+use crate::{dtb::{self, Dtb}, println, std::stdio};
 
 core::arch::global_asm!(
     "
 .section .text.entry
 .globl _start
 _start:
-  la sp, _stack_top
-  tail {entry}
+
+    // clear bss
+    la a3, _bss_start
+    la a4, _bss_end
+    ble a4, a3, .Lclear_bss_done
+    .Lclear_bss:
+        ld zero, 0(a3)
+        add a3, a3, 8
+        blt a3, a4, .Lclear_bss
+    .Lclear_bss_done:
+
+    la sp, _stack_top
+
+    
+    la a2, KERNEL_VMA
+    la a3, KERNEL_LMA
+    tail {entry}
 ",
-  entry = sym m_mode_entry,
+  entry = sym s_mode_entry,
+  options()
 );
 
-#[unsafe(no_mangle)]
-unsafe extern "C" fn m_mode_entry(hart_id: usize, dtb_ptr: *const u8) -> ! {
-    uart::early(); // minimal for 16550: optional init
+#[inline]
+pub fn print_hex_u64(value: u64) {
+    crate::uart::uart().write_bytes(b"0x");
 
-    println!("hart_id = {hart_id}");
-
-    let dtb = unsafe { Dtb::from_ptr(dtb_ptr).unwrap() };
-    _ = crate::dtb::dump(stdio::sout(), &dtb);
-
-    crate::arch::mtrap::init(&dtb);
-
-    unsafe {
-        riscv::register::pmpcfg0::set_pmp(
-            0,
-            riscv::register::Range::NAPOT,
-            riscv::register::Permission::RWX,
-            false,
-        );
-        riscv::register::pmpaddr0::write(usize::MAX);
-
-        println!("Initialized PMP");
-    }
-
-    unsafe {
-        riscv::register::mideleg::set_sext();
-        riscv::register::mideleg::set_ssoft();
-        riscv::register::mideleg::set_stimer();
-
-        riscv::register::mstatus::set_mpp(riscv::register::mstatus::MPP::Supervisor);
-        if riscv::register::mstatus::read().mie() {
-            riscv::register::mstatus::set_mpie();
-        }
-        println!("Initialized Supervisor registors");
-    }
-    unsafe {
-        asm!(
-          "
-      csrrw x0, mepc, t0
-      la sp, _stack_top
-      mret
-      ",
-          in("t0") s_mode_entry,
-          in("a0") hart_id,
-          in("a1") dtb_ptr,
-          options(noreturn)
-        )
+    // Print exactly 16 hex digits (leading zeros included)
+    for i in (0..16).rev() {
+        let nibble = ((value >> (i * 4)) & 0xF) as u8;
+        let c = match nibble {
+            0..=9  => b'0' + nibble,
+            10..=15 => b'a' + (nibble - 10),
+            _ => unreachable!(),
+        };
+        crate::uart::uart().write_bytes(&[c]);
     }
 }
 
 #[unsafe(no_mangle)]
-unsafe extern "C" fn s_mode_entry(_hart_id: usize, dtb_ptr: *const u8) -> ! {
-    println!("Entered S-Mode");
+unsafe extern "C" fn s_mode_entry(hart_id: usize, dtb_ptr: *const u8, vma: usize, lma: usize) -> ! {
+    uart::early();
+
+    uart::uart().write_str("\nvma ");
+    print_hex_u64(vma as u64);
+    uart::uart().write_str("\nlma ");
+    print_hex_u64(lma as u64);
+    loop{}
+    // writeln!(uart::uart(), "Entered S-Mode, hart: {hart_id}, vma: {vma:x?}, lma: {lma:x?}");
 
     use crate::dev::*;
 
     let dtb = unsafe { Dtb::from_ptr(dtb_ptr).unwrap() };
+    _ = dtb::dump(stdio::sout(), &dtb);
+
+    crate::arch::strap::init(&dtb);
 
     crate::mem::init(&dtb);
 
-    // crate::arch::strap::init(&dtb);
     // //     println!("hart_id = {hart_id}");
 
     // //     let dtb = unsafe { Dtb::from_ptr(dtb_ptr).unwrap() };

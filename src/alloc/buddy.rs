@@ -89,21 +89,30 @@ impl Buddy {
         if order > MAX_ORDER {
             panic!("Allocation order too large: {order} max {MAX_ORDER}")
         }
-        let align = 1 << (order + MIN_SIZE_P2);
-        //TODO maybe find a better way of doing this
-        let size = size.next_multiple_of(1 << order).max(align);
 
-        for start in &self.free_area[order..] {
-            if start.is_none(){
+        // TODO finding a better way to allocate sqeuential blocks of smaller orders might be nice
+
+        let requested_order = order_of(size).max(order);
+
+        for (mut block_order, start_place) in self.free_area.iter_mut().enumerate().skip(requested_order) {
+            let Some(mut block) = *start_place else{
                 continue;
+            };
+            unsafe{
+                // remove block from list
+                *start_place = block.as_mut().next;
             }
-
-
+            
+            // split block in half until it is desired size
+            while block_order != requested_order{
+                block_order -= 1;
+                let mut rhs = unsafe {block.byte_add(order_size(block_order))};
+                unsafe{rhs.as_mut().next = self.free_area[block_order]}
+                self.free_area[block_order] = Some(rhs);
+            }
+            return block.as_ptr().cast();
         }
-        panic!(
-            "Unable to allocate {size} bytes of alignment 2^{}",
-            order + MIN_SIZE_P2
-        );
+        core::ptr::null_mut()
     }
 
     /// # Safety

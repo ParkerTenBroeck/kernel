@@ -1,8 +1,9 @@
 use core::arch::global_asm;
 
-use riscv::register::{scause, stvec::Stvec};
+use riscv::register::{scause, stvec::Stvec, satp::Mode};
 
-use crate::{dtb, println};
+use crate::{arch::page, dtb, print, println};
+
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -135,7 +136,107 @@ pub extern "C" fn strap_handler(
     sepc: usize,
     stval: usize,
 ) {
-    println!("{scause:x?} {sepc:x?} {stval:x?} {frame:#?}")
+    let scause = scause.bits();
+    let sync = scause & (1 << 63) == 0;
+    let code = scause & !(1 << 63);
+    // println!("{sync} {code}");
+
+    if sync {
+        let desc = match code {
+            0 => "Instruction address misaligned",
+            1 => "Instruction access fault",
+            2 => "Illegal instruction",
+            3 => "Breakpoint",
+            4 => "Load address misaligned",
+            5 => "Load access fault",
+            6 => "Store address mimsaligned",
+            7 => "Store access fault",
+            8 => "Env call from U-mode",
+            9 => "Env call from S-mode",
+            11 => {
+                // csr::
+                println!(
+                    "\nEnv call from M-mode hardid: \"{}\"... returning",
+                    riscv::register::marchid::read().bits()
+                );
+                // println!("{:#?}", frame);
+                // timer::mdelay(6000);
+                return;
+            }
+            12 | 13 | 15 => {
+                let desc = match code {
+                    12 => "Instruction page fault",
+                    13 => "Page fault on load",
+                    15 => "Page fault on store",
+                    _ => "",
+                };
+
+                let stap = riscv::register::satp::read();
+                println!("{:?}, {:?}, 0x{:x?}", stap.mode(), stap.asid(), stap.ppn());
+
+                unsafe fn print_thing(table: &page::PageTable, level: usize) {
+                    for entry in &table.entries {
+                        if entry.valid() {
+                            for _ in 0..level {
+                                print!(" ");
+                            }
+                            println!("{:?}:{:x?}", entry as *const page::PageTableEntry, entry);
+                            if entry.perms() == 0 {
+                                unsafe {
+                                    print_thing(
+                                        &*((entry.ppn() << 12) as *const page::PageTable),
+                                        level + 1,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                if stap.mode() != Mode::Bare {
+                    unsafe {
+                        print_thing(&*((stap.ppn() << 12) as *const page::PageTable), 0);
+                    }
+                }
+
+                panic!(
+                    "\n\n\n{desc}:\nscause: 0x{scause:016x}, mepc: 0x{sepc:016x}, mtval: 0x{stval:016x}, \nCannot continue resetting\n\n"
+                );
+            }
+            _ => "Unknown exception",
+        };
+        panic!(
+            "\n\n\n{desc}:\nscause: 0x{scause:016x}, mepc: 0x{sepc:016x}, mtval: 0x{stval:016x}, \nCannot continue resetting\n\n"
+        );
+    } else {
+        match code {
+            0x7 => {}
+            0xb => {
+                // let pending = unsafe { plic::mclaim_int() };
+                // use core::sync::atomic::Ordering;
+                // if pending != 0 {
+                //     if let Some(ptr) = PLIC_HANDLERS
+                //         .get(pending as usize)
+                //         .and_then(|v: &AtomicPtr<()>| NonNull::new(v.load(Ordering::Acquire)))
+                //     {
+                //         let func: fn() = unsafe { core::mem::transmute(ptr) };
+                //         func()
+                //     } else {
+                //         panic!("\n\n\nplic: 0x{pending:016x}, mtval: 0x{mtval:016x}\nUnknown plic interrupt value. Cannot continue resetting\n\n");
+                //     }
+                //     unsafe {
+                //         plic::mint_complete(pending);
+                //     }
+                // } else {
+                //     panic!("\n\n\nscause: 0x{scause:016x}, mepc: 0x{mepc:016x}, mtval: 0x{mtval:016x}\nPlic Interrupt but no pending interrupt found? Cannot continue resetting\n\n");
+                // }
+            }
+            _ => {
+                panic!(
+                    "\n\n\nscause: 0x{scause:016x}, mepc: 0x{sepc:016x}, mtval: 0x{stval:016x}\nCannot continue resetting\n\n"
+                );
+            }
+        }
+    }
 }
 
 pub fn init(dtb: &dtb::Dtb) {
@@ -155,7 +256,7 @@ pub fn init(dtb: &dtb::Dtb) {
 
     unsafe {
         riscv::register::sie::set_sext();
-        riscv::register::sie::set_stimer();
+        riscv::register::sie::clear_stimer();
         riscv::register::sie::set_ssoft();
         riscv::register::sstatus::set_sie();
     }

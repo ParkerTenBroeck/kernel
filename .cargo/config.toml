@@ -8,13 +8,13 @@ build-std-features = ["compiler-builtins-mem"]
 
 [target.riscv64gc-unknown-none-elf]
 rustflags = [
-    "-C", "link-arg=-Tlink.ld",
+    "-C", "link-arg=-Tlink.map",
     "-C", "target-feature=+zihintpause",
 ]
+
 runner = """
 qemu-system-riscv64
-  -machine virt 
-  -bios none 
+  -machine virt
   
   -chardev stdio,id=uart0 
   -serial chardev:uart0 
