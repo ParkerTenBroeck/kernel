@@ -2,8 +2,8 @@ OUTPUT_ARCH(riscv)
 ENTRY(_start)
 
 KERNEL_LMA  = 0x81000000;          
-KERNEL_VMA  = 0x83000000;  
-//KERNEL_VMA  = 0xFFFFFFC000000000;  
+//KERNEL_VMA  = 0x80000000;  
+KERNEL_VMA  = 0xFFFFFFC000000000;  
 KERNEL_OFFSET = KERNEL_VMA - KERNEL_LMA;
 PAGE_SIZE   = 4K;
 
@@ -11,8 +11,6 @@ PAGE_SIZE   = 4K;
 
 SECTIONS
 {
-  LMA = ABSOLUTE(KERNEL_LMA);
-  VMA = ABSOLUTE(KERNEL_VMA);
   . = KERNEL_VMA;
   
   _kernel_start = .;
@@ -31,6 +29,13 @@ SECTIONS
     *(.rodata .rodata.*)
     _rodata_end = .;
   }
+
+  . = ALIGN(8);
+  .rela.dyn : AT(ADDR(.rela.dyn) - KERNEL_OFFSET) {
+		__rela_dyn_start = .;
+		*(.rela .rela*)
+		__rela_dyn_end = .;
+	}
   . = ALIGN(PAGE_SIZE);
 
 
@@ -39,9 +44,6 @@ SECTIONS
     *(.data .data.*)
     _data_end = .;
   }
-  . = ALIGN(PAGE_SIZE);
-
-
   .bss : AT(ADDR(.bss) - KERNEL_OFFSET) {
     _bss_start = .;
     *(.bss .bss.*)
