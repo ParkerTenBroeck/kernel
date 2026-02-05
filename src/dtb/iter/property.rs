@@ -50,7 +50,6 @@ impl<'a> Iterator for DtbRecursivePropertyIter<'a> {
     type Item = Property<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-
         loop {
             match self.0.next()? {
                 DtbToken::BeginNode(_) => self.1 += 1,

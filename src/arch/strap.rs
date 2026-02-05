@@ -1,9 +1,8 @@
 use core::arch::global_asm;
 
-use riscv::register::{scause, stvec::Stvec, satp::Mode};
+use riscv::register::{satp::Mode, scause, stvec::Stvec};
 
 use crate::{arch::page, dtb, print, println};
-
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -239,8 +238,7 @@ pub extern "C" fn strap_handler(
     }
 }
 
-pub fn init(dtb: &dtb::Dtb) {
-    let _ = dtb;
+pub fn init() {
     println!("Enabling S-Mode interrupts");
 
     unsafe extern "C" {

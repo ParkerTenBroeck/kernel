@@ -35,7 +35,6 @@ macro_rules! println {
     ($($arg:tt)*) => { {$crate::print!($($arg)*); $crate::println!(); }};
 }
 
-
 #[macro_export]
 macro_rules! dbg {
     () => {

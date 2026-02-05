@@ -80,8 +80,6 @@ const MCR: usize = 0x4;
 const LSR: usize = 0x5;
 /// Modem Status
 const MSR: usize = 0x6;
-/// Scratch
-const SCR: usize = 0x7;
 
 // LCR bits
 const LCR_DLAB: u8 = 1 << 7;
@@ -196,6 +194,19 @@ impl Uart16550 {
             self.putc(b);
         }
     }
+
+    pub fn hex(&mut self, value: usize) {
+        // Print exactly 16 hex digits (leading zeros included)
+        for i in (0..core::mem::size_of::<usize>()*2).rev() {
+            let nibble = ((value >> (i * 4)) & 0xF) as u8;
+            let c = match nibble {
+                0..=9 => b'0' + nibble,
+                10..=15 => b'a' + (nibble - 10),
+                _ => unreachable!(),
+            };
+            crate::uart::uart().write_bytes(&[c]);
+        }
+}
 }
 
 impl core::fmt::Write for Uart16550 {

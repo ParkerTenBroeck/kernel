@@ -11,7 +11,6 @@ rustflags = [
     "-C", "link-arg=-Tlink.map",
     "-C", "link-arg=-q",
     # "-C", "link-arg=-pie",
-    "-C", "prefer-dynamic",
     "-C", "target-feature=+zihintpause",
 ]
 

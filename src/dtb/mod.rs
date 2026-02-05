@@ -247,9 +247,9 @@ impl<'a> Dtb<'a> {
 
     pub fn root(&self) -> DtbNode<'a> {
         let mut body = DtbStructParser::new(self.structure, self.strings);
-        let name = match body.next(){
+        let name = match body.next() {
             Some(DtbToken::BeginNode(name)) => name,
-            _ => c""
+            _ => c"",
         };
         DtbNode::new(name, body)
     }

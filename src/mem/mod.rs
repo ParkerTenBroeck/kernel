@@ -1,36 +1,70 @@
+use core::alloc::Layout;
+
 use crate::{
-    dtb::{ByteStream, Dtb, DtbProperties},
-    println,
+    arch::page::{PageTable, PageTableEntry},
+    dtb::{ByteStream, Dtb, DtbNodes, DtbProperties},
 };
 
-#[derive(Debug)]
-pub struct Region {
-    pub start: *const u8,
-    pub size: usize,
+pub static mut ROOT_PAGE: PageTable = PageTable {
+    entries: [PageTableEntry::new(); 512],
+};
+
+/// # Safety
+/// .
+pub unsafe fn page_zeroed() -> *mut PageTable {
+    let page = crate::alloc::buddy::BUDDY
+        .lock()
+        .alloc(Layout::new::<PageTable>())
+        .cast::<PageTable>();
+
+    unsafe {
+        page.write_bytes(0, 1);
+    }
+    page
 }
 
-impl Region {
-    pub fn new(start: *const u8, end: *const u8) -> Self {
-        Self {
-            start,
-            size: end as usize - start as usize,
+#[allow(unsafe_op_in_unsafe_fn)]
+/// # Safety
+/// .
+pub unsafe fn map_pages(virt: usize, phys: usize, size: usize, entry: PageTableEntry) {
+    for p in 0..((size + 0x0FFF) >> 12) {
+        map_page(virt + (p << 12), phys + (p << 12), entry);
+    }
+}
+
+#[allow(static_mut_refs)]
+/// # Safety
+/// .
+pub unsafe fn map_page(virt: usize, phys: usize, entry: PageTableEntry) {
+    let ppn2 = (virt >> (9 + 9 + 12)) & ((1 << 9) - 1);
+    let ppn1 = (virt >> (9 + 12)) & ((1 << 9) - 1);
+    let ppn0 = (virt >> (12)) & ((1 << 9) - 1);
+
+    let mut curr = unsafe { &mut ROOT_PAGE };
+
+    for ppn in [ppn2, ppn1] {
+        if !curr.entries[ppn].valid() || curr.entries[ppn].is_leaf() {
+            let new = unsafe { page_zeroed() };
+
+            curr.entries[ppn] = PageTableEntry::new()
+                .set_valid(true)
+                .set_ppn(new as u64 >> 12);
         }
+        curr = unsafe { &mut *((curr.entries[ppn].ppn() << 12) as *mut PageTable) };
     }
 
-    pub fn address_range(&self) -> Range{
-        self.start as usize .. self.start as usize + self.size
-    }
+    curr.entries[ppn0] = entry.set_ppn(phys as u64 >> 12);
 }
 
 #[derive(Debug)]
 pub struct KernelLayout {
-    pub text: Region,
-    pub ro_data: Region,
-    pub data: Region,
-    pub bss: Region,
-    pub stack: Region,
+    pub text: Range,
+    pub ro_data: Range,
+    pub data: Range,
+    pub bss: Range,
+    pub stack: Range,
 
-    pub total: Region,
+    pub total: Range,
 }
 
 unsafe extern "C" {
@@ -67,13 +101,14 @@ unsafe extern "C" {
 
 impl KernelLayout {
     pub fn new() -> Self {
+        let range = |start, end| start as usize..end as usize;
         KernelLayout {
-            text: Region::new(&raw const text_start, &raw const text_end),
-            ro_data: Region::new(&raw const rodata_start, &raw const rodata_end),
-            data: Region::new(&raw const data_start, &raw const data_end),
-            bss: Region::new(&raw const bss_start, &raw const bss_end),
-            stack: Region::new(&raw const stack_start, &raw const stack_end),
-            total: Region::new(&raw const kernel_start, &raw const kernel_end),
+            text: range(&raw const text_start, &raw const text_end),
+            ro_data: range(&raw const rodata_start, &raw const rodata_end),
+            data: range(&raw const data_start, &raw const data_end),
+            bss: range(&raw const bss_start, &raw const bss_end),
+            stack: range(&raw const stack_start, &raw const stack_end),
+            total: range(&raw const kernel_start, &raw const kernel_end),
         }
     }
 }
@@ -86,66 +121,64 @@ impl Default for KernelLayout {
 
 type Range = core::ops::Range<usize>;
 
-fn subtract_range(a: Range, b: Range) -> [Option<Range>; 2] {
-    // No overlap
-    if b.end <= a.start || b.start >= a.end {
-        return [Some(a), None];
-    }
+pub fn reserved_regions(dtb: &Dtb) -> impl Iterator<Item = Range> {
+    dtb.root()
+        .childern()
+        .nammed(b"reserved-memory")
+        .filter_map(|node| {
+            let addr_cells = dtb
+                .root()
+                .properties()
+                .find_value(b"#address-cells", ByteStream::u32)?
+                * 4;
+            let size_cells = dtb
+                .root()
+                .properties()
+                .find_value(b"#size-cells", ByteStream::u32)?
+                * 4;
+            Some(node.childern().filter_map(move |reserved| {
+                let [start, size] = reserved.properties().find_value(b"reg", |stream| {
+                    stream.usize_cells_arr([addr_cells, size_cells])
+                })?;
 
-    // B fully covers A
-    if b.start <= a.start && b.end >= a.end {
-        return [None, None];
-    }
-
-    let mut out = [None, None];
-    let mut i = 0;
-
-    // Left remainder
-    if b.start > a.start {
-        out[i] = Some(Range {
-            start: a.start,
-            end: b.start.min(a.end),
-        });
-        i += 1;
-    }
-
-    // Right remainder
-    if b.end < a.end {
-        out[i] = Some(Range {
-            start: b.end.max(a.start),
-            end: a.end,
-        });
-    }
-
-    out
+                Some(Range {
+                    start,
+                    end: start + size,
+                })
+            }))
+        })
+        .flatten()
+        .chain(dtb.reserved().map(|r| Range {
+            start: r.address as usize,
+            end: r.address as usize + r.size as usize,
+        }))
 }
 
-pub fn init(dtb: &Dtb) {
-    let kernel_layout = KernelLayout::new();
-    println!("{:#x?}", kernel_layout);
+pub fn physical_region(dtb: &Dtb) -> Range {
+    let node = dtb
+        .nodes()
+        .find(|node| {
+            node.properties()
+                .find(b"device_type")
+                .is_some_and(|v| v.contains_str(b"memory"))
+        })
+        .expect("cannot find 'memory' device");
 
-    let node = dtb.nodes().find(|node| {
-        node.properties()
-            .find(b"device_type")
-            .is_some_and(|v| v.contains_str(b"memory"))
-    }).expect("cannot find 'memory' device");
-
-    let addr_cells = dtb.root().properties().expect_value(b"#address-cells", ByteStream::u32)*4;
-    let size_cells = dtb.root().properties().expect_value(b"#size-cells", ByteStream::u32)*4;
+    let addr_cells = dtb
+        .root()
+        .properties()
+        .expect_value(b"#address-cells", ByteStream::u32)
+        * 4;
+    let size_cells = dtb
+        .root()
+        .properties()
+        .expect_value(b"#size-cells", ByteStream::u32)
+        * 4;
     let reg_cells = [addr_cells, size_cells];
 
-    let [start, size] = node.properties().expect_value(b"reg", |stream|stream.usize_cells_arr(reg_cells));
+    let [start, size] = node
+        .properties()
+        .expect_value(b"reg", |stream| stream.usize_cells_arr(reg_cells));
 
-    unsafe{
-        let mem = start..start+size;
-        
-        let mut buddy = crate::alloc::buddy::BUDDY.lock(); 
-        
-        for range in subtract_range(mem, kernel_layout.total.address_range()).into_iter().flatten(){
-            buddy.free_region(range.start as *mut u8, range.end-range.start);
-        }
-        
-        buddy.print();
-    }
-
+    start..start + size
 }

@@ -4,3 +4,4 @@ pub mod pci;
 pub mod syscon;
 pub mod uart;
 pub mod vga;
+pub mod test_pci;

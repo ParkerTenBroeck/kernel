@@ -216,7 +216,10 @@ impl PageTable {
         mut out: T,
     ) -> core::fmt::Result {
         let level = (root as u64 + offset) as *const PageTable;
-        writeln!(out, "root:0x{root:p} asid:0x{asid:x}")?;
+        // writeln!(out, "root:0x{root:p} asid:0x{asid:x}")?;
+        crate::uart::uart().write_str("root:");
+        crate::uart::uart().hex(root as usize);
+        out.write_str("\n")?;
         fn disp_entry<T: core::fmt::Write>(
             out: &mut T,
             vpt: usize,
@@ -227,13 +230,13 @@ impl PageTable {
                 out.write_char('|')?;
             }
             let range = [1 << (9 + 9 + 12), 1 << (9 + 12), 1 << (12)];
-            write!(
-                out,
-                "0x{:016x} -> 0x{:08x}..0x{:08x} ",
-                vpt,
-                entry.ppn() << 12,
-                (entry.ppn() << 12) + range[level]
-            )?;
+            
+            crate::uart::uart().hex(vpt);
+            crate::uart::uart().write_str(" -> ");
+            crate::uart::uart().hex((entry.ppn() << 12) as usize);
+            crate::uart::uart().write_str("..");
+            crate::uart::uart().hex(((entry.ppn() << 12) + range[level]) as usize);
+
             out.write_str(if entry.strong_order() { "S0" } else { "--" })?;
             out.write_char(if entry.bufferable() { 'b' } else { '_' })?;
             out.write_char(if entry.cacheable() { 'c' } else { '_' })?;
@@ -250,7 +253,7 @@ impl PageTable {
             out.write_char(if entry.executable() { 'x' } else { '_' })?;
             out.write_char(if entry.writable() { 'w' } else { '_' })?;
             out.write_char(if entry.readable() { 'r' } else { '_' })?;
-            writeln!(out)?;
+            out.write_char('\n')?;
             Ok(())
         }
         for (i, entry) in (unsafe { *level }).entries.iter().enumerate() {
@@ -263,7 +266,10 @@ impl PageTable {
                 disp_entry(&mut out, vpt, *entry, 0)?;
                 continue;
             }
-            writeln!(out, "|0x{:08x}", entry.ppn() << 12)?;
+            out.write_str("|0x")?;
+            crate::uart::uart().hex((entry.ppn() << 12) as usize);
+            out.write_str("\n")?;
+
             let level = unsafe { &*(((entry.ppn() << 12) + offset) as *const PageTable) };
             for (i, entry) in level.entries.iter().enumerate() {
                 if !entry.valid() {
@@ -274,7 +280,11 @@ impl PageTable {
                     disp_entry(&mut out, vpt, *entry, 1)?;
                     continue;
                 }
-                writeln!(out, "||0x{:08x}", entry.ppn() << 12)?;
+
+                out.write_str("||0x")?;
+                crate::uart::uart().hex((entry.ppn() << 12) as usize);
+                out.write_str("\n")?;
+
                 let level = unsafe { &*(((entry.ppn() << 12) + offset) as *const PageTable) };
                 for (i, entry) in level.entries.iter().enumerate() {
                     if !entry.valid() {
@@ -285,7 +295,8 @@ impl PageTable {
                         disp_entry(&mut out, vpt, *entry, 2)?;
                         continue;
                     } else {
-                        writeln!(out, "||invalid :3")?;
+                        out.write_str("||invalid :3\n")?;
+                        out.write_str("\n")?;
                     }
                 }
             }
@@ -318,18 +329,18 @@ impl core::fmt::Debug for PageTableEntry {
 impl PageTableEntry {
     pub const NON_LEAF: PageTableEntry = PageTableEntry::new().set_valid(true);
 
-    pub const COM_EXEC: PageTableEntry = PageTableEntry::CACHEABLE_MEM
+    pub const COM_EXEC: PageTableEntry = PageTableEntry::new()
         .set_readable(true)
         .set_executable(true)
         .set_valid(true);
-    pub const COM_RO: PageTableEntry = PageTableEntry::CACHEABLE_MEM
+    pub const COM_RO: PageTableEntry = PageTableEntry::new()
         .set_readable(true)
         .set_valid(true);
-    pub const COM_RW: PageTableEntry = PageTableEntry::CACHEABLE_MEM
+    pub const COM_RW: PageTableEntry = PageTableEntry::new()
         .set_readable(true)
         .set_writable(true)
         .set_valid(true);
-    pub const COM_DEV: PageTableEntry = PageTableEntry::NON_BUFFERABLE_DEV
+    pub const COM_DEV: PageTableEntry = PageTableEntry::new()
         .set_readable(true)
         .set_writable(true)
         .set_valid(true);
@@ -394,6 +405,7 @@ impl PageTableEntry {
         (self.0 >> 1) & 0b1 == 1
     }
 
+    #[allow(clippy::identity_op)]
     pub const fn valid(&self) -> bool {
         (self.0 >> 0) & 0b1 == 1
     }

@@ -52,6 +52,11 @@ impl FrameBuffer {
         self.len
     }
 
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn set(&self, x: usize, y: usize, color: Color) {
         let index = x + y * self.xres;
         if index < self.len {
@@ -74,12 +79,12 @@ impl FrameBuffer {
 
 #[derive(Clone, Copy, Debug)]
 pub struct VGA {
-    cfg_base: *mut (),
+    _cfg_base: *mut (),
     fb: FrameBuffer,
 }
 
 static mut VGA: VGA = VGA {
-    cfg_base: core::ptr::null_mut(),
+    _cfg_base: core::ptr::null_mut(),
     fb: FrameBuffer {
         ptr: core::ptr::null_mut(),
         xres: 0,
@@ -101,7 +106,7 @@ pub fn init(xres: u16, yres: u16) {
 
     let fb = unsafe { FrameBuffer::new(fb, xres as usize, yres as usize) };
 
-    let vga = VGA { cfg_base, fb };
+    let vga = VGA { _cfg_base: cfg_base, fb };
     vga.fb.clear(Color::default());
 
     unsafe {
@@ -212,7 +217,6 @@ fn init_bochs(cfg_base: *mut u16, xres: u16, yres: u16) {
     const BGA_ENABLE: u16 = 0x04;
     const BGA_BANK: u16 = 0x05;
     const BGA_VIRT_WIDTH: u16 = 0x06;
-    const BGA_VIRT_HEIGHT: u16 = 0x07;
     const BGA_X_OFFSET: u16 = 0x08;
     const BGA_Y_OFFSET: u16 = 0x09;
 

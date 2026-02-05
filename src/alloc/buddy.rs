@@ -20,27 +20,27 @@ struct Block {
     next: Option<NonNull<Block>>,
 }
 
-const fn order_size(order: usize) -> usize{
+const fn order_size(order: usize) -> usize {
     order_align(order)
 }
 
-const fn order_align(order: usize) -> usize{
+const fn order_align(order: usize) -> usize {
     1 << (order + MIN_SIZE_P2)
 }
 
-const fn bottom_mask(order: usize) -> usize{
-    order_align(order)-1
+const fn bottom_mask(order: usize) -> usize {
+    order_align(order) - 1
 }
 
-const fn top_mask(order: usize) -> usize{
+const fn top_mask(order: usize) -> usize {
     !bottom_mask(order)
 }
 
-fn layout_order(layout: Layout) -> usize{
+fn layout_order(layout: Layout) -> usize {
     MIN_SIZE_P2.min(layout.align().trailing_zeros() as usize) - MIN_SIZE_P2
 }
 
-fn order_of(value: usize) -> usize{
+fn order_of(value: usize) -> usize {
     value.trailing_zeros().min(MIN_SIZE_P2 as u32) as usize - MIN_SIZE_P2
 }
 
@@ -62,6 +62,13 @@ impl Buddy {
         }
     }
 
+    /// # Safety
+    ///
+    /// .
+    pub unsafe fn clear(&mut self){
+        self.free_area = [const { None }; MAX_ORDER];
+    }
+
     pub fn alloc(&mut self, layout: Layout) -> *mut u8 {
         self.alloc_order(layout.size(), layout_order(layout))
     }
@@ -71,7 +78,7 @@ impl Buddy {
     /// .
     #[allow(unsafe_op_in_unsafe_fn)]
     pub unsafe fn free(&mut self, data: *mut u8, layout: Layout) {
-        self.free_order(data, layout.size(), layout_order(layout)) 
+        self.free_order(data, layout.size(), layout_order(layout))
     }
 
     /// # Safety
@@ -94,20 +101,22 @@ impl Buddy {
 
         let requested_order = order_of(size).max(order);
 
-        for (mut block_order, start_place) in self.free_area.iter_mut().enumerate().skip(requested_order) {
-            let Some(mut block) = *start_place else{
+        for (mut block_order, start_place) in
+            self.free_area.iter_mut().enumerate().skip(requested_order)
+        {
+            let Some(mut block) = *start_place else {
                 continue;
             };
-            unsafe{
+            unsafe {
                 // remove block from list
                 *start_place = block.as_mut().next;
             }
-            
+
             // split block in half until it is desired size
-            while block_order != requested_order{
+            while block_order != requested_order {
                 block_order -= 1;
-                let mut rhs = unsafe {block.byte_add(order_size(block_order))};
-                unsafe{rhs.as_mut().next = self.free_area[block_order]}
+                let mut rhs = unsafe { block.byte_add(order_size(block_order)) };
+                unsafe { rhs.as_mut().next = self.free_area[block_order] }
                 self.free_area[block_order] = Some(rhs);
             }
             return block.as_ptr().cast();
@@ -145,12 +154,10 @@ impl Buddy {
         }
 
         'outer: for mut current_ptr_place in &mut self.free_area[order..] {
-
             loop {
-
                 let Some(current_ptr_value) = *current_ptr_place else {
                     // end of of free list
-                    unsafe{(*block.as_ptr()).next = None}
+                    unsafe { (*block.as_ptr()).next = None }
                     *current_ptr_place = Some(block);
                     break 'outer;
                 };
@@ -163,7 +170,9 @@ impl Buddy {
                     unsafe { &mut current_ptr_value.as_ptr().as_mut().unwrap_unchecked().next };
 
                 // combine two 'buddies' and try to merge higher up
-                if current_ptr_value.as_ptr() as usize == block.as_ptr() as usize ^ order_size(order) {
+                if current_ptr_value.as_ptr() as usize
+                    == block.as_ptr() as usize ^ order_size(order)
+                {
                     order += 1;
                     if order > MAX_ORDER {
                         panic!("Too large: {order} max {MAX_ORDER}")

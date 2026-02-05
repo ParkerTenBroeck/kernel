@@ -32,7 +32,7 @@ macro_rules! integer {
         pub fn $name_cell(&mut $self, bytes: u32) -> Option<$ty>{
             let mut value: $ty = 0;
             let backup = *$self;
-            
+
             for &byte in $self.bytes(bytes as usize)?{
                 match value.checked_shl(8){
                     Some(shifted) => {
@@ -89,9 +89,14 @@ impl<'a> ByteStream<'a> {
     integer!(self, u32, u32_array, u32_cells, u32_cells_arr, u32);
     integer!(self, u64, u64_array, u64_cells, u64_cells_arr, u64);
     integer!(self, u128, u128_array, u128_cells, u128_cells_arr, u128);
-    integer!(self, usize, usize_array, usize_cells, usize_cells_arr, usize);
-
-    
+    integer!(
+        self,
+        usize,
+        usize_array,
+        usize_cells,
+        usize_cells_arr,
+        usize
+    );
 
     pub const fn align(&mut self, align: usize) {
         let offset = (align - (self.1 & (align - 1))) & (align - 1);
