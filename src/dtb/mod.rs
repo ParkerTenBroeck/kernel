@@ -267,6 +267,12 @@ impl<'a> Dtb<'a> {
     }
 }
 
+impl<'a> core::fmt::Display for Dtb<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        dump::dump(f, self)
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct DtbNode<'a> {
     name: &'a CStr,

@@ -26,8 +26,6 @@ pub fn init(dtb: &Dtb) {
     let clock_frequency = props.expect_value(b"clock-frequency", ByteStream::u32);
     let [start, _size] = props.expect_value(b"reg", ByteStream::u64_array::<2>);
 
-    println!("{start:#x?}");
-
     unsafe {
         UART = Uart16550::new(start as *mut ());
         uart().init((clock_frequency / (16 * 115200)) as u16);
@@ -197,7 +195,7 @@ impl Uart16550 {
 
     pub fn hex(&mut self, value: usize) {
         // Print exactly 16 hex digits (leading zeros included)
-        for i in (0..core::mem::size_of::<usize>()*2).rev() {
+        for i in (0..core::mem::size_of::<usize>() * 2).rev() {
             let nibble = ((value >> (i * 4)) & 0xF) as u8;
             let c = match nibble {
                 0..=9 => b'0' + nibble,
@@ -206,7 +204,7 @@ impl Uart16550 {
             };
             crate::uart::uart().write_bytes(&[c]);
         }
-}
+    }
 }
 
 impl core::fmt::Write for Uart16550 {

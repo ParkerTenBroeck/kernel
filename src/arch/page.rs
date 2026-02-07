@@ -230,7 +230,7 @@ impl PageTable {
                 out.write_char('|')?;
             }
             let range = [1 << (9 + 9 + 12), 1 << (9 + 12), 1 << (12)];
-            
+
             crate::uart::uart().hex(vpt);
             crate::uart::uart().write_str(" -> ");
             crate::uart::uart().hex((entry.ppn() << 12) as usize);
@@ -333,9 +333,7 @@ impl PageTableEntry {
         .set_readable(true)
         .set_executable(true)
         .set_valid(true);
-    pub const COM_RO: PageTableEntry = PageTableEntry::new()
-        .set_readable(true)
-        .set_valid(true);
+    pub const COM_RO: PageTableEntry = PageTableEntry::new().set_readable(true).set_valid(true);
     pub const COM_RW: PageTableEntry = PageTableEntry::new()
         .set_readable(true)
         .set_writable(true)

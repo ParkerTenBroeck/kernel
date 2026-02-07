@@ -1,8 +1,27 @@
-use core::arch::global_asm;
+use core::{
+    arch::global_asm,
+    mem::MaybeUninit,
+    ptr::{NonNull, addr_of_mut},
+};
 
 use riscv::register::{satp::Mode, scause, stvec::Stvec};
 
-use crate::{arch::page, dtb, print, println};
+use crate::{arch::page, print, println};
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct Task {
+    pub next: NonNull<Task>,
+    pub stack: *mut u8,
+    pub frame: TrapFrame,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct TrapCtx {
+    pub scratch: usize,
+    pub task: NonNull<Task>,
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -22,10 +41,24 @@ global_asm!(
     .balign 4
     strap_vector:
         
+       
+        csrrw x31, sscratch, x31  // swap x31 and sscratch, x31 -> TrapCtx
+        sd sp, 0(x31)            // TrapCtx->scratch = sp
+
+        csrr sp, sstatus
+        andi sp, sp, (1 << 8)   # isolate SPP bit (bit 8)
+
+        bnez sp, .Lsupervisor
+            // we are comming from user mode (untrusted stack)
+            ld sp, 8(x31)            // sp = TrapCtx->task
+            ld sp, 8(x31)            // sp = Task->stack
+        .Lsupervisor:
+
         addi sp, sp, -{frame_size}
 
+        // general registers
         sd x1, 1 * 8( sp )
-        sd x1, 2 * 8( sp ) // csrr x1, sscratch
+        // sp
         sd x3, 3 * 8( sp )
         sd x4, 4 * 8( sp )
         sd x5, 5 * 8( sp )
@@ -50,8 +83,15 @@ global_asm!(
         sd x24, 24 * 8( sp )
         sd x25, 25 * 8( sp )
         sd x26, 26 * 8( sp )
-        sd x27, 27 * 8( sp )
-        sd x28, 28 * 8( sp )
+        sd x27, 27 * 8( sp ) // at this point we've saved all "save" registers
+
+        ld x1, 0(x31) // load stack ptr from ctx scratch
+        sd x1, 2 * 8( sp ) // save previous stack ptr
+
+        move s0, x31             // save TrapCtx
+        csrrw x31, sscratch, x31 // restore sscratch
+
+        sd x28, 28 * 8( sp )  
         sd x29, 29 * 8( sp )
         sd x30, 30 * 8( sp )
         sd x31, 31 * 8( sp )
@@ -64,23 +104,12 @@ global_asm!(
         csrr a2, sepc
         csrr a3, stval
 
-        # test if asynchronous
-        srli t0, a1, 64 - 1		/* MSB of scause is 1 if handing an asynchronous interrupt - shift to LSB to clear other bits. */
-        beq t0, x0, s.handle_synchronous		/* Branch past interrupt handing if not asynchronous. */
-        	
-
-    s.handle_asynchronous:
+        // save PC
         sd a2, 0( sp )
-        jal {handler}
-        j s.return
 
-    s.handle_synchronous:
-        addi t0, a2, 4
-        sd t0, 0( sp )
         jal {handler}
 
-
-    s.return:
+        strap_return:
 
         ld t0, 0(sp)
         csrw sepc, t0
@@ -90,7 +119,6 @@ global_asm!(
 
         
         ld x1, 1 * 8( sp )
-        ld x2, 2 * 8( sp )
         ld x3, 3 * 8( sp )
         ld x4, 4 * 8( sp )
         ld x5, 5 * 8( sp )
@@ -120,8 +148,8 @@ global_asm!(
         ld x29, 29 * 8( sp )
         ld x30, 30 * 8( sp )
         ld x31, 31 * 8( sp )
-
-        addi sp, sp, {frame_size}
+        
+        ld x2, 2 * 8( sp ) // restore previous stack
         
         sret
     "#,
@@ -135,13 +163,12 @@ pub extern "C" fn strap_handler(
     sepc: usize,
     stval: usize,
 ) {
-    let scause = scause.bits();
-    let sync = scause & (1 << 63) == 0;
-    let code = scause & !(1 << 63);
-    // println!("{sync} {code}");
+    println!("{frame:x?}");
 
-    if sync {
-        let desc = match code {
+    if scause.is_exception() {
+        frame.pc += 4;
+
+        let desc = match scause.code() {
             0 => "Instruction address misaligned",
             1 => "Instruction access fault",
             2 => "Illegal instruction",
@@ -163,7 +190,7 @@ pub extern "C" fn strap_handler(
                 return;
             }
             12 | 13 | 15 => {
-                let desc = match code {
+                let desc = match scause.code() {
                     12 => "Instruction page fault",
                     13 => "Page fault on load",
                     15 => "Page fault on store",
@@ -198,16 +225,16 @@ pub extern "C" fn strap_handler(
                 }
 
                 panic!(
-                    "\n\n\n{desc}:\nscause: 0x{scause:016x}, mepc: 0x{sepc:016x}, mtval: 0x{stval:016x}, \nCannot continue resetting\n\n"
+                    "\n\n\n{desc}:\nscause: {scause:016x?}, mepc: 0x{sepc:016x}, mtval: 0x{stval:016x}, \nCannot continue resetting\n\n"
                 );
             }
             _ => "Unknown exception",
         };
         panic!(
-            "\n\n\n{desc}:\nscause: 0x{scause:016x}, mepc: 0x{sepc:016x}, mtval: 0x{stval:016x}, \nCannot continue resetting\n\n"
+            "\n\n\n{desc}:\nscause: {scause:016x?}, mepc: 0x{sepc:016x}, mtval: 0x{stval:016x}, \nCannot continue resetting\n\n"
         );
     } else {
-        match code {
+        match scause.code() {
             0x7 => {}
             0xb => {
                 // let pending = unsafe { plic::mclaim_int() };
@@ -231,16 +258,19 @@ pub extern "C" fn strap_handler(
             }
             _ => {
                 panic!(
-                    "\n\n\nscause: 0x{scause:016x}, mepc: 0x{sepc:016x}, mtval: 0x{stval:016x}\nCannot continue resetting\n\n"
+                    "\n\n\nscause: 0x{scause:016x?}, mepc: 0x{sepc:016x}, mtval: 0x{stval:016x}\nCannot continue resetting\n\n"
                 );
             }
         }
     }
 }
 
-pub fn init() {
-    println!("Enabling S-Mode interrupts");
+static mut CORE_TRAP_CTX: MaybeUninit<TrapCtx> = MaybeUninit::zeroed();
+static mut INIT_TASK: MaybeUninit<Task> = MaybeUninit::zeroed();
 
+type InitTask = unsafe extern "C" fn(hart_id: usize, dtb_ptr: *const u8) -> !;
+
+pub unsafe fn init(init: InitTask, hart_id: usize, dtb_ptr: *const u8) -> ! {
     unsafe extern "C" {
         #[link_name = "strap_vector"]
         pub fn strap_vector();
@@ -252,11 +282,36 @@ pub fn init() {
         ));
     }
 
+    #[allow(static_mut_refs)]
     unsafe {
-        riscv::register::sie::set_sext();
-        riscv::register::sie::clear_stimer();
-        riscv::register::sie::set_ssoft();
-        riscv::register::sstatus::set_sie();
+        let task = NonNull::new_unchecked(INIT_TASK.as_mut_ptr());
+        *addr_of_mut!((*task.as_ptr()).next) = task;
+        *addr_of_mut!((*CORE_TRAP_CTX.as_mut_ptr()).task) = task;
+        riscv::register::sscratch::write(CORE_TRAP_CTX.as_ptr() as usize);
     }
-    println!("Interrupts enabled S-Mode ");
+
+    let sp = crate::mem::KernelLayout::new().stack.end;
+
+    let mut sstatus = riscv::register::sstatus::read();
+    sstatus.set_spie(true);
+    sstatus.set_spp(riscv::register::sstatus::SPP::Supervisor);
+
+    let mut frame = TrapFrame {
+        pc: init as usize,
+        regs: [0; 31],
+        sstatus,
+    };
+    frame.regs[1] = sp;
+    frame.regs[9] = hart_id;
+    frame.regs[10] = dtb_ptr as usize;
+
+    println!("Beginning Init Task");
+    unsafe {
+        core::arch::asm!(
+            "move sp, {0}
+            tail strap_return",
+            in(reg) &mut frame,
+            options(noreturn, nostack)
+        )
+    }
 }

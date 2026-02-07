@@ -32,7 +32,7 @@ qemu-system-riscv64
 
 
   -netdev user,id=net0 
-  -device virtio-net-pci,netdev=net0 
+  -device i82559c,netdev=net0 
   -drive if=none,format=raw,readonly=off,file=fs.img,id=drv0 
   -device virtio-blk-pci,drive=drv0 
 

@@ -65,7 +65,7 @@ impl Buddy {
     /// # Safety
     ///
     /// .
-    pub unsafe fn clear(&mut self){
+    pub unsafe fn clear(&mut self) {
         self.free_area = [const { None }; MAX_ORDER];
     }
 

@@ -1,46 +1,73 @@
+use core::fmt::Write;
+
 use crate::{
-    arch::page::{PageTable, PageTableEntry}, dev::uart, dtb::Dtb, kernel_entry, mem::ROOT_PAGE
+    arch::page::{PageTable, PageTableEntry},
+    dev::uart,
+    dtb::Dtb,
+    kernel_entry,
+    mem::ROOT_PAGE,
+    print,
+    std::stdio,
 };
 
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe extern "C" fn setup_vm(_: usize, dtb_ptr: *const u8, vma: usize, pma: usize) {
-    uart::early();
-    uart::uart().write_str("Setting up virtual memory\n");
+    crate::stdio::set_sout(|str| {
+        for byte in str.as_bytes() {
+            unsafe { core::arch::asm!("ecall", in("a7") 1, in("a6") 0, in("a0") *byte) }
+        }
+    });
+    stdio::sout().write_str("Setting up virtual memory\n");
 
     for i in 0..256 {
-        ROOT_PAGE.entries[i] = (PageTableEntry::COM_DEV.set_executable(true) | PageTableEntry::DIRTY_ACCESSED)
+        ROOT_PAGE.entries[i] = (PageTableEntry::COM_DEV.set_executable(true)
+            | PageTableEntry::DIRTY_ACCESSED)
             .set_ppn((i as u64) << 18);
     }
 
     uart::uart().write_str("Discovering memory\n");
 
     let dtb = unsafe { Dtb::from_ptr(dtb_ptr).unwrap() };
-    // _ = dtb::dump(stdio::sout(), &dtb);
 
-   crate::alloc::buddy::BUDDY.lock().clear();
+    crate::alloc::buddy::BUDDY.lock().clear();
 
-
-    let dtb_range = dtb_ptr as usize..dtb_ptr as usize + dtb.header().totalsize as usize; 
+    let dtb_range = dtb_ptr as usize..dtb_ptr as usize + dtb.header().totalsize as usize;
     let mem = crate::mem::physical_region(&dtb);
     let kernel_layout_phys = crate::mem::KernelLayout::new();
 
+    let reserved = |page: core::ops::Range<usize>| {
+        crate::mem::reserved_regions(&dtb)
+            .chain([kernel_layout_phys.total.clone(), dtb_range.clone()])
+            .any(|reserved| (page.start < reserved.end) & (reserved.start < page.end))
+    };
+
     let page_size = core::mem::size_of::<PageTable>();
-    for page_phy in mem.step_by(page_size) {
-        let page = page_phy..page_phy + page_size;
-        if crate::mem::reserved_regions(&dtb)
-            .chain([kernel_layout_phys.total.clone(), dtb_range.clone()].into_iter())
-            .any(|range| {
-                range.contains(&page.start)
-                    || range.contains(&page.end)
-                    || page.contains(&range.start)
-                    || page.contains(&range.end)
-            })
-        {
+
+    let mut curr_phys_addr = mem.start;
+    while curr_phys_addr < mem.end {
+        if reserved(curr_phys_addr..curr_phys_addr + page_size) {
+            curr_phys_addr += page_size;
             continue;
         }
+
+        let mut page_size = page_size << 1;
+        while curr_phys_addr + page_size <= mem.end
+            && !reserved(curr_phys_addr..curr_phys_addr + page_size)
+        {
+            page_size <<= 1;
+        }
+        page_size >>= 1;
+
         crate::alloc::buddy::BUDDY
             .lock()
-            .free_region(page.start as *mut u8, page_size);
+            .free_region(curr_phys_addr as *mut u8, page_size);
+
+        uart::uart().write_str("freeing start: ");
+        uart::uart().hex(curr_phys_addr);
+        uart::uart().write_str(" end: ");
+        uart::uart().hex(curr_phys_addr + page_size);
+        uart::uart().write_str("\n");
+        curr_phys_addr += page_size;
     }
 
     uart::uart().write_str("Memory discovery complete\n");
@@ -51,7 +78,6 @@ unsafe extern "C" fn setup_vm(_: usize, dtb_ptr: *const u8, vma: usize, pma: usi
     uart::uart().hex(pma);
     uart::uart().write_str("\n");
 
-
     uart::uart().write_str("vma: ");
     uart::uart().hex(vma);
     uart::uart().write_str("\n");
@@ -61,7 +87,6 @@ unsafe extern "C" fn setup_vm(_: usize, dtb_ptr: *const u8, vma: usize, pma: usi
     uart::uart().write_str("offset: ");
     uart::uart().hex(virt_offset);
     uart::uart().write_str("\n");
-
 
     // text section
     crate::mem::map_pages(
@@ -115,7 +140,6 @@ core::arch::global_asm!(
 _start:
 
     // clear bss
-    /*
     la a3, _bss_start
     la a4, _bss_end
     ble a4, a3, .Lclear_bss_done
@@ -124,7 +148,6 @@ _start:
         add a3, a3, 8
         blt a3, a4, .Lclear_bss
     .Lclear_bss_done:
-    */
 
     
     lga a2, KERNEL_VMA

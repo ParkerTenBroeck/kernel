@@ -1,23 +1,6 @@
 use crate::dtb::*;
 
-pub enum DumpError {
-    Dtb(DtbError),
-    Fmt(core::fmt::Error),
-}
-
-impl From<core::fmt::Error> for DumpError {
-    fn from(val: core::fmt::Error) -> Self {
-        DumpError::Fmt(val)
-    }
-}
-
-impl From<DtbError> for DumpError {
-    fn from(value: DtbError) -> Self {
-        Self::Dtb(value)
-    }
-}
-
-pub fn dump<W: core::fmt::Write>(mut out: W, dtb: &Dtb) -> Result<(), DumpError> {
+pub fn dump<W: core::fmt::Write>(mut out: W, dtb: &Dtb) -> core::fmt::Result {
     writeln!(out, "{:#?}", dtb.header())?;
 
     for reserved in dtb.reserved() {

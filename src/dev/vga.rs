@@ -106,7 +106,10 @@ pub fn init(xres: u16, yres: u16) {
 
     let fb = unsafe { FrameBuffer::new(fb, xres as usize, yres as usize) };
 
-    let vga = VGA { _cfg_base: cfg_base, fb };
+    let vga = VGA {
+        _cfg_base: cfg_base,
+        fb,
+    };
     vga.fb.clear(Color::default());
 
     unsafe {
