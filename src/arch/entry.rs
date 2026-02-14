@@ -11,19 +11,37 @@ use crate::{
 };
 
 #[allow(unsafe_op_in_unsafe_fn)]
-unsafe extern "C" fn setup_vm(_: usize, dtb_ptr: *const u8, vma: usize, pma: usize) {
+unsafe extern "C" fn setup_vm_trampoline(_: usize, dtb_ptr: *const u8, vma: usize, pma: usize) {
+    for byte in "meow".as_bytes() {
+        unsafe { core::arch::asm!("ecall", in("a7") 1, in("a6") 0, in("a0") *byte) }
+    }
     crate::stdio::set_sout(|str| {
         for byte in str.as_bytes() {
             unsafe { core::arch::asm!("ecall", in("a7") 1, in("a6") 0, in("a0") *byte) }
         }
     });
-    stdio::sout().write_str("Setting up virtual memory\n");
 
+    _ = stdio::sout().write_str("Setting up virtual memory trampoline\n");
     for i in 0..256 {
         ROOT_PAGE.entries[i] = (PageTableEntry::COM_DEV.set_executable(true)
             | PageTableEntry::DIRTY_ACCESSED)
             .set_ppn((i as u64) << 18);
     }
+
+    for i in 0..128 {
+        ROOT_PAGE.entries[i+256+128] = (PageTableEntry::COM_DEV
+            | PageTableEntry::DIRTY_ACCESSED)
+            .set_ppn((i as u64) << 18);
+    }
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe extern "C" fn setup_vm(_: usize, dtb_ptr: *const u8, vma: usize, pma: usize) {
+
+    // _ = stdio::sout().write_str("Removing virtual memory trampoline\n");
+    // for i in 0..256 {
+    //     ROOT_PAGE.entries[i] = PageTableEntry(0);
+    // }
 
     uart::uart().write_str("Discovering memory\n");
 
@@ -58,15 +76,17 @@ unsafe extern "C" fn setup_vm(_: usize, dtb_ptr: *const u8, vma: usize, pma: usi
         }
         page_size >>= 1;
 
-        crate::alloc::buddy::BUDDY
-            .lock()
-            .free_region(curr_phys_addr as *mut u8, page_size);
-
         uart::uart().write_str("freeing start: ");
         uart::uart().hex(curr_phys_addr);
         uart::uart().write_str(" end: ");
         uart::uart().hex(curr_phys_addr + page_size);
         uart::uart().write_str("\n");
+
+        crate::alloc::buddy::BUDDY
+            .lock()
+            .free_region(curr_phys_addr as *mut u8, page_size);
+
+
         curr_phys_addr += page_size;
     }
 
@@ -133,11 +153,19 @@ unsafe extern "C" fn setup_vm(_: usize, dtb_ptr: *const u8, vma: usize, pma: usi
     uart::uart().write_str("Completed kernel mapping\n");
 }
 
+unsafe extern "C" fn panic(){
+    panic!("Early Panic")
+}
+
 core::arch::global_asm!(
     "
+        .option push
+        .option norelax
 .section .text.entry
 .global _start
 _start:
+    la      gp, __global_pointer$
+
 
     // clear bss
     la a3, _bss_start
@@ -155,12 +183,33 @@ _start:
     // fixup offset
     sub s0, a2, a3
 
+    // sets trap vector to entry point
+    la t0, {panic}
+    csrw stvec, t0
+
     la sp, _stack_top
     move s1, a0
     move s2, a1
     move s3, a2
     move s4, a3
+    call {setup_vm_trampoline}
+    
+    
+    // enable virtual memory
+    la t1, {root}
+    srli t1, t1, 12
+    li t0, 0x8000000000000000
+    or t0, t0, t1
+    sfence.vma
+    csrw satp, t0
+    sfence.vma
+
+    move a0, s1
+    move a1, s2
+    move a2, s3
+    move a3, s4
     call {setup_vm}
+    sfence.vma
     move a0, s1
     move a1, s2
     move a2, s3
@@ -177,20 +226,15 @@ _start:
     // sets trap vector to entry point
     csrw stvec, s1
 
-    // setup virtual memory
-    la t1, {root}
-    srli t1, t1, 12
-    li t0, 0x8000000000000000
-    or t0, t0, t1
-    sfence.vma
-    csrw satp, t0
-    sfence.vma
-
     jr s1
 
 .size _start, . - _start
 .type _start, @function
+
+    .option pop
 ",
+    panic = sym panic,
+    setup_vm_trampoline = sym setup_vm_trampoline,
     setup_vm = sym setup_vm,
     root = sym ROOT_PAGE,
     entry = sym kernel_entry,

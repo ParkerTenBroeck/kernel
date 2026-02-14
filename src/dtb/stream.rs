@@ -4,7 +4,7 @@ use core::ffi::CStr;
 pub struct ByteStream<'a>(&'a [u8], usize);
 
 macro_rules! integer {
-    ($self:ident, $name:ident, $name_arr:ident, $name_cell:ident, $name_cell_arr:ident, $ty:ty) => {
+    ($self:ident, $name:ident, $name_arr:ident, $name_cell:ident, $name_cell_arr:ident, $name_bytes:ident, $name_bytes_arr:ident, $ty:ty) => {
         pub const fn $name(&mut self) -> Option<$ty> {
             match self.chunk(){
                 Some(bytes) => Some(<$ty>::from_be_bytes(bytes)),
@@ -29,7 +29,19 @@ macro_rules! integer {
             Some(array)
         }
 
-        pub fn $name_cell(&mut $self, bytes: u32) -> Option<$ty>{
+
+        pub fn $name_cell(&mut $self, cells: u32) -> Option<$ty>{
+            $self.$name_bytes(cells*4)
+        }
+
+        pub fn $name_cell_arr<const N: usize>(&mut $self, mut cells: [u32; N]) -> Option<[$ty; N]>{
+            for cell in &mut cells{
+                *cell *= 4;
+            }
+            $self.$name_bytes_arr(cells)
+        }
+
+        pub fn $name_bytes(&mut $self, bytes: u32) -> Option<$ty>{
             let mut value: $ty = 0;
             let backup = *$self;
 
@@ -47,12 +59,12 @@ macro_rules! integer {
             Some(value)
         }
 
-        pub fn $name_cell_arr<const N: usize>(&mut $self, bytes: [u32; N]) -> Option<[$ty; N]>{
+        pub fn $name_bytes_arr<const N: usize>(&mut $self, bytes: [u32; N]) -> Option<[$ty; N]>{
             let backup = *$self;
             let mut array = [0; N];
             let mut i = 0;
             while i < N {
-                array[i] = match $self.$name_cell(bytes[i]){
+                array[i] = match $self.$name_bytes(bytes[i]){
                     Some(value) => value,
                     None => {
                         *$self = backup;
@@ -84,19 +96,12 @@ impl<'a> ByteStream<'a> {
         self.chunk_ref().copied()
     }
 
-    integer!(self, u8, u8_array, u8_cells, u8_cells_arr, u8);
-    integer!(self, u16, u16_array, u16_cells, u16_cells_arr, u16);
-    integer!(self, u32, u32_array, u32_cells, u32_cells_arr, u32);
-    integer!(self, u64, u64_array, u64_cells, u64_cells_arr, u64);
-    integer!(self, u128, u128_array, u128_cells, u128_cells_arr, u128);
-    integer!(
-        self,
-        usize,
-        usize_array,
-        usize_cells,
-        usize_cells_arr,
-        usize
-    );
+    integer!(self, u8,      u8_array,       u8_cells,       u8_cells_arr,       u8_bytes,       u8_bytes_arr,       u8);
+    integer!(self, u16,     u16_array,      u16_cells,      u16_cells_arr,      u16_bytes,      u16_bytes_arr,      u16);
+    integer!(self, u32,     u32_array,      u32_cells,      u32_cells_arr,      u32_bytes,      u32_bytes_arr,      u32);
+    integer!(self, u64,     u64_array,      u64_cells,      u64_cells_arr,      u64_bytes,      u64_bytes_arr,      u64);
+    integer!(self, u128,    u128_array,     u128_cells,     u128_cells_arr,     u128_bytes,     u128_bytes_arr,     u128);
+    integer!(self, usize,   usize_array,    usize_cells,    usize_cells_arr,    usize_bytes,    usize_bytes_arr,    usize);
 
     pub const fn align(&mut self, align: usize) {
         let offset = (align - (self.1 & (align - 1))) & (align - 1);

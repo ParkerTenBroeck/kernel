@@ -1,13 +1,10 @@
 OUTPUT_ARCH(riscv)
 ENTRY(_start)
 
-KERNEL_LMA  = 0x81000000;          
-//KERNEL_VMA  = 0x81000000;  
+KERNEL_LMA  = 0x81000000;    
 KERNEL_VMA  = 0xFFFFFFC000000000;  
 KERNEL_OFFSET = KERNEL_VMA - KERNEL_LMA;
 PAGE_SIZE   = 4K;
-
-
 
 SECTIONS
 {
@@ -15,48 +12,44 @@ SECTIONS
   
   _kernel_start = .;
 
-  .text : AT(ADDR(.text) - KERNEL_OFFSET) {
+  .text : AT(ADDR(.text) - KERNEL_OFFSET) ALIGN(PAGE_SIZE) {
     _text_start = .;
     KEEP(*(.text.entry))
     *(.text .text.*)
     _text_end = .;
   }
-  . = ALIGN(PAGE_SIZE);
 
 
-  .rodata : AT(ADDR(.rodata) - KERNEL_OFFSET) {
+  .rodata : AT(ADDR(.rodata) - KERNEL_OFFSET) ALIGN(PAGE_SIZE) {
     _rodata_start = .;
     *(.rodata .rodata.*)
+    *(.srodata .srodata.*)
     _rodata_end = .;
   }
+  
 
-
-  .data : AT(ADDR(.data) - KERNEL_OFFSET) {
+  .data : AT(ADDR(.data) - KERNEL_OFFSET) ALIGN(PAGE_SIZE) {
     _data_start = .;
     *(.data .data.*)
+    *(.sdata .sdata.*)
+    PROVIDE(__global_pointer$ = .);
+    *(.got .got.*)
     _data_end = .;
   }
-  .bss : AT(ADDR(.bss) - KERNEL_OFFSET) {
+
+  .bss : AT(ADDR(.bss) - KERNEL_OFFSET) ALIGN(PAGE_SIZE) {
     _bss_start = .;
     *(.bss .bss.*)
     *(COMMON)
     _bss_end = .;
   }
-  . = ALIGN(PAGE_SIZE);
 
-  .stack (NOLOAD) : AT(ADDR(.stack) - KERNEL_OFFSET) {
+  .stack (NOLOAD) : AT(ADDR(.stack) - KERNEL_OFFSET) ALIGN(PAGE_SIZE){
       _stack_start = .;
       . += 4K*4;
       _stack_top = .;
-  }
+  } 
 
   _kernel_end = .;
-
-  __CODE_SIZE__ = SIZEOF(.text);
-  __RO_SIZE__ = SIZEOF(.ro);
-  __BSS_SIZE__ = SIZEOF(.bss);
-  __DATA_SIZE__ = SIZEOF(.data);
-  __STACK_SIZE__ = SIZEOF(.stack);
-  __KERNEL_SIZE__ = SIZEOF(.text) + SIZEOF(.ro) + SIZEOF(.bss) + SIZEOF(.data);
 }
 

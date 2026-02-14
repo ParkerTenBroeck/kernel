@@ -359,27 +359,28 @@ pub fn init(dtb: &Dtb<'_>) {
     let props = node.properties();
     let [start, size] = props.expect_value(b"reg", ByteStream::u64_array::<2>);
 
+
+    let start_cells = dtb.root().properties().expect_value(b"#address-cells", ByteStream::u32);
     let size_cells = props.expect_value(b"#size-cells", ByteStream::u32);
     let interrupt_cells = props.expect_value(b"#interrupt-cells", ByteStream::u32);
     let address_cells = props.expect_value(b"#address-cells", ByteStream::u32);
 
-    assert!(size_cells == 2);
-    assert!(interrupt_cells == 1);
-    assert!(address_cells == 3);
 
     let [bus_start, bus_end] = props.expect_value(b"bus-range", ByteStream::u32_array::<2>);
 
-    let [
+    let meow @ (
         (_addr_io, start_io, size_io),
         (_addr_32, start_32, size_32),
         (_addr_64, start_64, size_64),
-    ] = props.expect_value(b"ranges", |stream| {
-        Some([
-            (stream.u32_array::<3>()?, stream.u64()?, stream.u64()?),
-            (stream.u32_array::<3>()?, stream.u64()?, stream.u64()?),
-            (stream.u32_array::<3>()?, stream.u64()?, stream.u64()?),
-        ])
+    ) = props.expect_value(b"ranges", |stream| {
+        Some((
+            (stream.u128_cells(address_cells)?, stream.u32_cells(start_cells)?, stream.u32_cells(size_cells)?),
+            (stream.u128_cells(address_cells)?, stream.u32_cells(start_cells)?, stream.u32_cells(size_cells)?),
+            (stream.u128_cells(address_cells)?, stream.u64_cells(start_cells)?, stream.u64_cells(size_cells)?)
+        ))
     });
+
+    println!("{meow:#x?}");
 
     unsafe {
         let pci = PCI {
@@ -390,8 +391,8 @@ pub fn init(dtb: &Dtb<'_>) {
             interrupt_cells,
             address_cells,
 
-            mm_io_reg: [start_io.try_into().unwrap(), size_io.try_into().unwrap()],
-            mm_32_reg: [start_32.try_into().unwrap(), size_32.try_into().unwrap()],
+            mm_io_reg: [start_io, size_io],
+            mm_32_reg: [start_32, size_32],
             mm_64_reg: [start_64, size_64],
 
             mm_io_bump: 0,

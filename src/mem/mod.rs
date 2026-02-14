@@ -129,13 +129,11 @@ pub fn reserved_regions(dtb: &Dtb) -> impl Iterator<Item = Range> {
             let addr_cells = dtb
                 .root()
                 .properties()
-                .find_value(b"#address-cells", ByteStream::u32)?
-                * 4;
+                .find_value(b"#address-cells", ByteStream::u32)?;
             let size_cells = dtb
                 .root()
                 .properties()
-                .find_value(b"#size-cells", ByteStream::u32)?
-                * 4;
+                .find_value(b"#size-cells", ByteStream::u32)?;
             Some(node.childern().filter_map(move |reserved| {
                 let [start, size] = reserved.properties().find_value(b"reg", |stream| {
                     stream.usize_cells_arr([addr_cells, size_cells])
@@ -167,13 +165,11 @@ pub fn physical_region(dtb: &Dtb) -> Range {
     let addr_cells = dtb
         .root()
         .properties()
-        .expect_value(b"#address-cells", ByteStream::u32)
-        * 4;
+        .expect_value(b"#address-cells", ByteStream::u32);
     let size_cells = dtb
         .root()
         .properties()
-        .expect_value(b"#size-cells", ByteStream::u32)
-        * 4;
+        .expect_value(b"#size-cells", ByteStream::u32);
     let reg_cells = [addr_cells, size_cells];
 
     let [start, size] = node

@@ -178,16 +178,16 @@ unsafe fn vga_minimal_init(cfg_base: *mut u8) {
     unsafe {
         let vga_ports = cfg_base.add(0x400);
 
-        // 1) Set MISC output: choose color emulation + enable access to 0x3D4 regs.
+        // Set MISC output: choose color emulation + enable access to 0x3D4 regs.
         // Typical value: 0x67 for 25MHz/28MHz + enable RAM + IO select.
         mmio_out8(vga_ports, 0x3C2, 0x67);
 
-        // 2) Sequencer: reset, then enable
+        // Sequencer: reset, then enable
         mmio_out8(vga_ports, 0x3C4, 0x00); // seq index 0 (reset)
         mmio_out8(vga_ports, 0x3C5, 0x01); // async reset
         mmio_out8(vga_ports, 0x3C5, 0x03); // sync reset released (some do 0x03)
 
-        // 3) Unblank display via Attribute Controller
+        // Unblank display via Attribute Controller
         // Reading 0x3DA resets the flip-flop
         let _ = mmio_in8(vga_ports, 0x3DA);
 
@@ -203,7 +203,7 @@ unsafe fn vga_minimal_init(cfg_base: *mut u8) {
         let _ = mmio_in8(vga_ports, 0x3DA);
         mmio_out8(vga_ports, 0x3C0, 0x20); // bit5=1 enables display, index=0
 
-        // 4) Unlock CRTC regs (common requirement)
+        // Unlock CRTC regs (common requirement)
         mmio_out8(vga_ports, 0x3D4, 0x11);
         let v = mmio_in8(vga_ports, 0x3D5);
         mmio_out8(vga_ports, 0x3D5, v & !0x80); // clear bit7 to unlock
