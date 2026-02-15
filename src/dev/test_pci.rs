@@ -29,7 +29,7 @@ pub fn test_pci() {
                 .set(pci::CommandRegister::MEMORY_SPACE, true),
         );
 
-        let addr = pci::pci().read_bar(device, 0).address() as *mut ();
+        let addr = pci::pci().read_bar(device, 0).pointer::<()>(pci::pci()).virt();
 
         for i in 0..=255 {
             addr.byte_add(0).cast::<u8>().write_volatile(i);

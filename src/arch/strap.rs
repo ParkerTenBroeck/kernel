@@ -6,7 +6,7 @@ use core::{
 
 use riscv::register::{satp::Mode, scause, stvec::Stvec};
 
-use crate::{arch::page, print, println};
+use crate::{arch::page, mem::pages::Page, print, println};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -51,8 +51,11 @@ global_asm!(
         bnez sp, .Lsupervisor
             // we are comming from user mode (untrusted stack)
             ld sp, 8(x31)            // sp = TrapCtx->task
-            ld sp, 8(x31)            // sp = Task->stack
+            ld sp, 8(x31)            // sp = Task->kernel_stack
+            j .Lend
         .Lsupervisor:
+            ld sp, 0(x31)            // sp = TrapCtx->scratch
+        .Lend:
 
         addi sp, sp, -{frame_size}
 
@@ -172,7 +175,10 @@ pub extern "C" fn strap_handler(
             0 => "Instruction address misaligned",
             1 => "Instruction access fault",
             2 => "Illegal instruction",
-            3 => "Breakpoint",
+            3 => {
+                println!("Breakpoint");
+                return;
+            },
             4 => "Load address misaligned",
             5 => "Load access fault",
             6 => "Store address mimsaligned",
@@ -199,30 +205,6 @@ pub extern "C" fn strap_handler(
 
                 let stap = riscv::register::satp::read();
                 println!("{:?}, {:?}, 0x{:x?}", stap.mode(), stap.asid(), stap.ppn());
-
-                unsafe fn print_thing(table: &page::PageTable, level: usize) {
-                    for entry in &table.entries {
-                        if entry.valid() {
-                            for _ in 0..level {
-                                print!(" ");
-                            }
-                            println!("{:?}:{:x?}", entry as *const page::PageTableEntry, entry);
-                            if entry.perms() == 0 {
-                                unsafe {
-                                    print_thing(
-                                        &*((entry.ppn() << 12) as *const page::PageTable),
-                                        level + 1,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-                if stap.mode() != Mode::Bare {
-                    unsafe {
-                        print_thing(&*((stap.ppn() << 12) as *const page::PageTable), 0);
-                    }
-                }
 
                 panic!(
                     "\n\n\n{desc}:\nscause: {scause:016x?}, mepc: 0x{sepc:016x}, mtval: 0x{stval:016x}, \nCannot continue resetting\n\n"
@@ -291,6 +273,8 @@ pub unsafe fn init(init: InitTask, hart_id: usize, dtb_ptr: *const u8) -> ! {
         *addr_of_mut!((*task.as_ptr()).next) = task;
         *addr_of_mut!((*CORE_TRAP_CTX.as_mut_ptr()).task) = task;
         riscv::register::sscratch::write(CORE_TRAP_CTX.as_ptr() as usize);
+
+        println!("{:?}", CORE_TRAP_CTX.as_ptr());
     }
 
     let sp = crate::mem::KernelLayout::new().stack.end;
@@ -311,7 +295,10 @@ pub unsafe fn init(init: InitTask, hart_id: usize, dtb_ptr: *const u8) -> ! {
     println!("Beginning Init Task");
     unsafe {
         core::arch::asm!(
-            "move sp, {0}
+            
+            "
+            //ebreak 
+            move sp, {0}
             tail strap_return",
             in(reg) &mut frame,
             options(noreturn, nostack)

@@ -1,4 +1,4 @@
-use crate::{dtb::*, println, stdio};
+use crate::{dtb::*, mem::Pointer, println, stdio};
 
 static mut UART: Uart16550 = unsafe { Uart16550::new(0x1000_0000 as *mut ()) };
 
@@ -27,7 +27,7 @@ pub fn init(dtb: &Dtb) {
     let [start, _size] = props.expect_value(b"reg", ByteStream::u64_array::<2>);
 
     unsafe {
-        UART = Uart16550::new(start as *mut ());
+        UART = Uart16550::new(Pointer::from_phys(start as *mut ()).virt());
         uart().init((clock_frequency / (16 * 115200)) as u16);
     }
 
@@ -57,13 +57,13 @@ pub fn init(dtb: &Dtb) {
             .set(pci::CommandRegister::IO_SPACE, true)
         );
 
-        let start = pci::pci().read_bar(device, 0).address();
+        let start = pci::pci().read_bar(device, 0).pointer(pci::pci()).virt();
 
         println!("{start:x?}");
 
-        let mut uart = Uart16550::new_with_stride(start as *mut (), 1);
+        let mut uart = Uart16550::new_with_stride(start, 1);
         uart.init(0);
-        uart.write_str("PCI Uart Hello\n"); 
+        // uart.write_str("PCI Uart Hello\n"); 
     }
 }
 

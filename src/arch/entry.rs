@@ -1,7 +1,7 @@
-use core::{fmt::Write, sync::atomic::{AtomicBool, fence}};
+use core::{arch::asm, fmt::Write, sync::atomic::{AtomicBool, fence}};
 
 use crate::{
-    arch::page::{PageTable, PageTableEntry}, dev::uart, dtb::Dtb, kernel_entry, mem::KernelLayout, println, std::stdio
+    arch::page::{PageTable, PageTableEntry, PageTableRoot}, dev::uart, dtb::Dtb, kernel_entry, mem::KernelLayout, println, std::stdio
 };
 
 static FIRST: AtomicBool = AtomicBool::new(true);
@@ -32,7 +32,7 @@ unsafe fn relocate_kernel(addr: usize){
     println!("relocated kernel to {addr:#x?}");
 }
 
-fn early_print(str: &str){
+pub fn early_print(str: &str){
     for byte in str.as_bytes() {
         unsafe { core::arch::asm!("ecall", in("a7") 1, in("a6") 0, in("a0") *byte) }
     }
@@ -106,98 +106,84 @@ unsafe extern "C" fn setup_vm(_: usize, dtb_ptr: *const u8, vma: usize, pma: usi
     crate::stdio::set_sout(early_print);
     relocate_kernel(vma);
 
-    println!("Discovering memory");
+
+    println!("Discovering memory: {dtb_ptr:?}");
 
     let dtb = unsafe { Dtb::from_ptr(dtb_ptr).unwrap() };
 
-    crate::alloc::buddy::BUDDY.lock().clear();
-
-    let dtb_range = dtb_ptr as usize..dtb_ptr as usize + dtb.header().totalsize as usize;
-    let mem = crate::mem::physical_region(&dtb);
-    let kernel_layout_phys = crate::mem::KernelLayout::new();
-
-    let reserved = |page: core::ops::Range<usize>| {
-        crate::mem::reserved_regions(&dtb)
-            .chain([kernel_layout_phys.total.clone(), dtb_range.clone()])
-            .any(|reserved| (page.start < reserved.end) & (reserved.start < page.end))
-    };
-
-    let page_size = core::mem::size_of::<PageTable>();
-
-    let mut curr_phys_addr = mem.start;
-    while curr_phys_addr < mem.end {
-        if reserved(curr_phys_addr..curr_phys_addr + page_size) {
-            curr_phys_addr += page_size;
-            continue;
-        }
-
-        let mut page_size = page_size << 1;
-        while curr_phys_addr + page_size <= mem.end
-            && !reserved(curr_phys_addr..curr_phys_addr + page_size)
-        {
-            page_size <<= 1;
-        }
-        page_size >>= 1;
-
-        println!("freeing range {curr_phys_addr:#x?}..{:#x?}", curr_phys_addr + page_size);
-
-        crate::alloc::buddy::BUDDY
-            .lock()
-            .free_region(curr_phys_addr as *mut u8, page_size);
-
-
-        curr_phys_addr += page_size;
-    }
-
-    println!("Memory discovery complete");
+    crate::mem::pages::discover(&dtb);
 
     println!("Creating kernel memory map");
 
-    let virt_offset = vma - pma;
+    let phys_offset = pma.wrapping_sub(vma);
 
-    println!("pma: {pma:#x?}    vma: {vma:#x?}    offset: {virt_offset:#x?}");
+    println!("pma: {pma:#x?}    vma: {vma:#x?}    offset: {phys_offset:#x?}");
+
+    let kernel_layout = KernelLayout::new();
+
+    let supplier = || unsafe{crate::mem::pages::page_zeroed()};
+
+    let mut kernel_map = PageTableRoot::new(supplier);
 
     // text section
-    // crate::mem::map_pages(
-    //     kernel_layout_phys.text.start + virt_offset,
-    //     kernel_layout_phys.text.start,
-    //     kernel_layout_phys.text.end - kernel_layout_phys.text.start,
-    //     PageTableEntry::COM_EXEC | PageTableEntry::DIRTY_ACCESSED,
-    // );
+    kernel_map.map_region(
+        kernel_layout.text.start,
+        kernel_layout.text.start.wrapping_add(phys_offset),
+        kernel_layout.text.end - kernel_layout.text.start,
+        PageTableEntry::COM_EXEC | PageTableEntry::DIRTY_ACCESSED,
+        supplier
+    ).unwrap();
 
-    // // ro section
-    // crate::mem::map_pages(
-    //     kernel_layout_phys.ro_data.start + virt_offset,
-    //     kernel_layout_phys.ro_data.start,
-    //     kernel_layout_phys.ro_data.end - kernel_layout_phys.ro_data.start,
-    //     PageTableEntry::COM_RO | PageTableEntry::DIRTY_ACCESSED,
-    // );
+    // ro section
+    kernel_map.map_region(
+        kernel_layout.ro_data.start,
+        kernel_layout.ro_data.start.wrapping_add(phys_offset),
+        kernel_layout.ro_data.end - kernel_layout.ro_data.start,
+        PageTableEntry::COM_RO | PageTableEntry::DIRTY_ACCESSED,
+        supplier
+    ).unwrap();
 
-    // // data section
-    // crate::mem::map_pages(
-    //     kernel_layout_phys.data.start + virt_offset,
-    //     kernel_layout_phys.data.start,
-    //     kernel_layout_phys.data.end - kernel_layout_phys.data.start,
-    //     PageTableEntry::COM_RW | PageTableEntry::DIRTY_ACCESSED,
-    // );
+    // data section
+    kernel_map.map_region(
+        kernel_layout.data.start,
+        kernel_layout.data.start.wrapping_add(phys_offset),
+        kernel_layout.data.end - kernel_layout.data.start,
+        PageTableEntry::COM_RW | PageTableEntry::DIRTY_ACCESSED,
+        supplier
+    ).unwrap();
 
-    // // bss section
-    // crate::mem::map_pages(
-    //     kernel_layout_phys.bss.start + virt_offset,
-    //     kernel_layout_phys.bss.start,
-    //     kernel_layout_phys.bss.end - kernel_layout_phys.bss.start,
-    //     PageTableEntry::COM_RW | PageTableEntry::DIRTY_ACCESSED,
-    // );
+    // bss section
+    kernel_map.map_region(
+        kernel_layout.bss.start,
+        kernel_layout.bss.start.wrapping_add(phys_offset),
+        kernel_layout.bss.end - kernel_layout.bss.start,
+        PageTableEntry::COM_RW | PageTableEntry::DIRTY_ACCESSED,
+        supplier
+    ).unwrap();
 
-    // // stacks
-    // crate::mem::map_pages(
-    //     kernel_layout_phys.stack.start + virt_offset,
-    //     kernel_layout_phys.stack.start,
-    //     kernel_layout_phys.stack.end - kernel_layout_phys.stack.start,
-    //     PageTableEntry::COM_RW | PageTableEntry::DIRTY_ACCESSED,
-    // );
+    // stacks
+    kernel_map.map_region(
+        kernel_layout.stack.start,
+        kernel_layout.stack.start.wrapping_add(phys_offset),
+        kernel_layout.stack.end - kernel_layout.stack.start,
+        PageTableEntry::COM_RW | PageTableEntry::DIRTY_ACCESSED,
+        supplier
+    ).unwrap();
 
-    // _ = PageTable::disp_table(&raw const ROOT_PAGE, 0, 0, uart::uart());
+    // virt <-> phys
+    kernel_map.map_region(
+        crate::mem::PHYS_ADDR_OFFSET,
+        0x0,
+        1024*1024*1024*128,
+        PageTableEntry::COM_DEV | PageTableEntry::DIRTY_ACCESSED,
+        supplier
+    ).unwrap();
+
+    println!("{kernel_map}");
+
+    asm!("sfence.vma");
+    riscv::register::satp::set(riscv::register::satp::Mode::Sv39, 0, kernel_map.root().phys() as usize >> 12);
+    asm!("sfence.vma");
 
     println!("Completed kernel meory map");
 }
@@ -270,12 +256,17 @@ _start:
     lla sp, _stack_top
     lla      gp, __global_pointer$
 
+
     move a0, s1
     move a1, s2
     move a2, s3
     move a3, s4
     call {setup_vm}
     sfence.vma
+
+    li t0, {phys_to_virt_offset}
+    add s2, s2, t0
+
     move a0, s1
     move a1, s2
     move a2, s3
@@ -295,5 +286,6 @@ _start:
     setup_vm_trampoline = sym setup_vm_trampoline,
     setup_vm = sym setup_vm,
     entry = sym kernel_entry,
+    phys_to_virt_offset = const crate::mem::PHYS_ADDR_OFFSET,
     options()
 );

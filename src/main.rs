@@ -27,10 +27,7 @@ pub unsafe extern "C" fn kernel_entry(
     lma: usize,
 ) -> ! {
 
-    uart::early();
-    stdio::set_sout(|str|uart::uart().write_str(str));
-
-    println!("Entered S-Mode, hart: {hart_id}, dtb: {dtb_ptr:?}, vma: {vma:#x?}, lma: {lma:#x?}");
+    println!("Kernel entry, hart: {hart_id}, dtb: {dtb_ptr:?}, vma: {vma:#x?}, lma: {lma:#x?}");
 
     unsafe {
         crate::arch::strap::init(init_task, hart_id, dtb_ptr);
@@ -40,7 +37,7 @@ pub unsafe extern "C" fn kernel_entry(
 /// # Safety
 /// dtb_ptr must point to a valid dtb tree
 pub unsafe extern "C" fn init_task(_hart_id: usize, dtb_ptr: *const u8) -> ! {
-    println!("HERE!!!");
+    println!("Begun init task");
 
     let dtb = unsafe { Dtb::from_ptr(dtb_ptr).unwrap() };
     println!("{dtb}");

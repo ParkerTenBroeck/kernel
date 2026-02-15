@@ -1,14 +1,11 @@
 use core::{alloc::Layout, ptr::NonNull};
 
-use crate::{print, println, sync::mutex::CriticalSpinLock};
+use crate::{print, println};
 
 const MIN_SIZE_P2: usize = 12;
 const MAX_SIZE_P2: usize = usize::BITS as usize - 1;
 pub const MAX_ORDER: usize = MAX_SIZE_P2 - MIN_SIZE_P2;
 
-pub static BUDDY: CriticalSpinLock<Buddy> = CriticalSpinLock::new(Buddy {
-    free_area: [const { None }; MAX_ORDER],
-});
 
 pub struct Buddy {
     free_area: [Option<NonNull<Block>>; MAX_ORDER],
@@ -45,6 +42,9 @@ fn order_of(value: usize) -> usize {
 }
 
 impl Buddy {
+    pub const fn new() -> Self{
+        Self{free_area: [const { None }; MAX_ORDER]}
+    }
     pub fn print(&self) {
         let mut encountered_non_empty = false;
         for (i, mut current) in self.free_area.iter().copied().enumerate().rev() {

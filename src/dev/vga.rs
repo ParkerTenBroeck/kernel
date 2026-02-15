@@ -150,11 +150,11 @@ unsafe fn init_pci(buffer_size: usize) -> (*mut (), *mut Color) {
     }
 
     let bar2 = unsafe { pci().read_bar(device, 2) };
-    let cfg_base = bar2.address() as *mut ();
+    let cfg_base = bar2.pointer(pci()).virt();
     println!("vga cfg base {cfg_base:?}");
 
     let bar0 = unsafe { pci().read_bar(device, 0) };
-    let fb_base = bar0.address() as *mut Color;
+    let fb_base = bar0.pointer(pci()).virt();
     println!("vga framebuffer base {fb_base:?}");
 
     (cfg_base, fb_base)

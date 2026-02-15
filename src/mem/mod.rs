@@ -1,59 +1,32 @@
-use core::alloc::Layout;
+pub mod pages;
 
 use crate::{
-    arch::page::{PageTable},
     dtb::{ByteStream, Dtb, DtbNodes, DtbProperties},
 };
 
 pub const PHYS_ADDR_OFFSET: usize = 0xFFFFFFC000000000;
 
 
-/// # Safety
-/// .
-pub unsafe fn page_zeroed() -> *mut PageTable {
-    let page = crate::alloc::buddy::BUDDY
-        .lock()
-        .alloc(Layout::new::<PageTable>())
-        .cast::<PageTable>();
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Pointer<T>(*mut T);
 
-    unsafe {
-        page.write_bytes(0, 1);
+impl<T> Pointer<T>{
+    pub fn phys(&self) -> *mut T{
+        (self.0 as usize - PHYS_ADDR_OFFSET) as *mut T
     }
-    page
+
+    pub fn virt(&self) -> *mut T{
+        self.0
+    }
+
+    pub fn from_phys(phys: *mut T) -> Self{
+        Self((phys as usize + PHYS_ADDR_OFFSET) as *mut T)
+    }
+
+    pub fn from_virt(virt: *mut T) -> Self{
+        Self(virt)
+    }
 }
-
-// #[allow(unsafe_op_in_unsafe_fn)]
-// /// # Safety
-// /// .
-// pub unsafe fn map_pages(virt: usize, phys: usize, size: usize, entry: PageTableEntry) {
-//     for p in 0..((size + 0x0FFF) >> 12) {
-//         map_page(virt + (p << 12), phys + (p << 12), entry);
-//     }
-// }
-
-// #[allow(static_mut_refs)]
-// /// # Safety
-// /// .
-// pub unsafe fn map_page(virt: usize, phys: usize, entry: PageTableEntry) {
-//     let ppn2 = (virt >> (9 + 9 + 12)) & ((1 << 9) - 1);
-//     let ppn1 = (virt >> (9 + 12)) & ((1 << 9) - 1);
-//     let ppn0 = (virt >> (12)) & ((1 << 9) - 1);
-
-//     let mut curr = unsafe { &mut ROOT_PAGE };
-
-//     for ppn in [ppn2, ppn1] {
-//         if !curr.entries[ppn].valid() || curr.entries[ppn].is_leaf() {
-//             let new = unsafe { page_zeroed() };
-
-//             curr.entries[ppn] = PageTableEntry::new()
-//                 .set_valid(true)
-//                 .set_ppn(new as u64 >> 12);
-//         }
-//         curr = unsafe { &mut *((curr.entries[ppn].ppn() << 12) as *mut PageTable) };
-//     }
-
-//     curr.entries[ppn0] = entry.set_ppn(phys as u64 >> 12);
-// }
 
 #[derive(Debug)]
 pub struct KernelLayout {

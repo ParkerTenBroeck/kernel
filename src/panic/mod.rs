@@ -32,7 +32,7 @@ pub fn print_u32_dec(out: &mut crate::std::stdio::Sout, mut n: u32) {
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     crate::std::stdio::set_sout(|str| {
-        crate::uart::uart().write_str(str);
+        arch::entry::early_print(str);
     });
     if PANICKED.swap(true, core::sync::atomic::Ordering::SeqCst) {
         arch::halt()

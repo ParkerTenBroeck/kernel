@@ -69,6 +69,7 @@ impl<'a> Property<'a> {
 
 pub struct Dtb<'a> {
     header: DtbHeader,
+    slice: &'a [u8],
     reserved: ByteStream<'a>,
     structure: ByteStream<'a>,
     strings: DtbStrings<'a>,
@@ -210,6 +211,7 @@ impl<'a> Dtb<'a> {
 
         Ok(Self {
             header,
+            slice,
             reserved,
             structure,
             strings,
@@ -232,6 +234,10 @@ impl<'a> Dtb<'a> {
             Self::from_slice(core::slice::from_raw_parts(dtb, total_size))
         }
     }
+
+    pub const fn slice(&self) -> &'a [u8]{
+        self.slice
+    } 
 
     pub fn reserved(&self) -> DtbReserveIter<'a> {
         DtbReserveIter::new(self.reserved)

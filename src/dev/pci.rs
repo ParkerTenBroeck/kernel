@@ -2,7 +2,7 @@
 
 use core::{alloc::Layout, cell::UnsafeCell, mem::MaybeUninit};
 
-use crate::{dtb::*, println};
+use crate::{dtb::*, mem::Pointer, println};
 
 #[derive(Clone, Copy, Debug)]
 pub struct PciBdf {
@@ -77,24 +77,29 @@ pub enum Bar {
     IO(u32),
 }
 impl Bar {
-    pub fn address(self) -> usize {
-        match self {
+    pub fn pointer<T>(self, pci: &PCI) -> Pointer<T> {
+        let addr: usize = match self {
             Bar::MMIO32(addr, _) => addr.try_into().unwrap(),
             Bar::MMIO64(addr, _) => addr.try_into().unwrap(),
-            Bar::IO(addr) => addr.try_into().unwrap(),
-        }
+            Bar::IO(addr) => {
+                let addr: usize = addr.try_into().unwrap();
+                addr + pci.mm_io_reg[0] as usize
+            },
+        };
+
+        Pointer::from_phys(addr as *mut T)
     }
 }
 
 impl PCI {
-    fn ecam_addr(&self, bdf: PciBdf, offset: usize) -> *mut u32 {
+    fn ecam_addr(&self, bdf: PciBdf, offset: usize) -> Pointer<u32> {
         debug_assert!(offset < 4096);
         let addr = self.dev as usize
             + ((bdf.bus as usize) << 20)
             + ((bdf.dev as usize) << 15)
             + ((bdf.func as usize) << 12)
             + (offset & !0x3);
-        addr as *mut u32
+        Pointer::from_phys(addr as *mut u32)
     }
 
     #[inline(always)]
@@ -113,7 +118,7 @@ impl PCI {
                 for func in 0..8 {
                     let bdf = PciBdf { bus, dev, func };
                     let id = self.ecam_addr(bdf, 0x00);
-                    let id = unsafe { id.read_volatile() };
+                    let id = unsafe { id.virt().read_volatile() };
 
                     let vid = Self::vendor_id(id);
                     let did = Self::device_id(id);
@@ -125,9 +130,9 @@ impl PCI {
                         continue;
                     }
 
-                    let cc = unsafe { self.ecam_addr(bdf, 0x08).read_volatile() };
-                    let hdr = unsafe { self.ecam_addr(bdf, 0x0C).read_volatile() };
-                    let cap = unsafe { self.ecam_addr(bdf, 0x34).read_volatile() };
+                    let cc = unsafe { self.ecam_addr(bdf, 0x08).virt().read_volatile() };
+                    let hdr = unsafe { self.ecam_addr(bdf, 0x0C).virt().read_volatile() };
+                    let cap = unsafe { self.ecam_addr(bdf, 0x34).virt().read_volatile() };
 
                     let class = (cc >> 24) as u8;
                     let subclass = (cc >> 16) as u8;
@@ -159,7 +164,7 @@ impl PCI {
                 for func in 0..8 {
                     let bdf = PciBdf { bus, dev, func };
                     let id = self.ecam_addr(bdf, 0x00);
-                    let id = unsafe { id.read_volatile() };
+                    let id = unsafe { id.virt().read_volatile() };
 
                     let vid = Self::vendor_id(id);
                     let did = Self::device_id(id);
@@ -181,7 +186,8 @@ impl PCI {
     }
 
     pub unsafe fn read_cmd_status(&self, device: PciBdf) -> (StatusRegister, CommandRegister) {
-        let v = unsafe { self.pointer(device, 0x04).read_volatile() };
+        println!("{:?}", self.pointer(device, 0x04).virt());
+        let v = unsafe { self.pointer(device, 0x04).virt().read_volatile() };
         let cmd = (v & 0xFFFF) as u16;
         let status = ((v >> 16) & 0xFFFF) as u16;
         (
@@ -192,17 +198,20 @@ impl PCI {
 
     pub unsafe fn write_cmd_status(&self, device: PciBdf, cmd: CommandRegister) {
         let reg = self.pointer(device, 0x04);
-        let v = unsafe { reg.read_volatile() };
+        println!("0: {reg:?}");
+        let v = unsafe { reg.virt().read_volatile() };
+        println!("1: {reg:?}");
         let v = (v & 0xFFFF_0000) | cmd.bits() as u32;
-        unsafe { reg.write_volatile(v) }
+        unsafe { reg.virt().write_volatile(v) }
+        println!("2: {reg:?}");
     }
 
     pub unsafe fn read_bar(&self, device: PciBdf, bar: u8) -> Bar {
         let off = 0x10 + (bar as usize) * 4;
-        let lo = unsafe { self.pointer(device, off).read_volatile() };
+        let lo = unsafe { self.pointer(device, off).virt().read_volatile() };
         let is_io = (lo & 0x1) != 0;
         if is_io {
-            return Bar::IO((lo & !0x3) + self.mm_io_reg[0]);
+            return Bar::IO(lo & !0x3);
         }
 
         let bar_type = (lo >> 1) & 0x3;
@@ -212,7 +221,7 @@ impl PCI {
         let addr_lo = (lo & 0xFFFF_FFF0) as u64;
 
         if is_64 {
-            let hi = unsafe { self.pointer(device, off + 4).read_volatile() } as u64;
+            let hi = unsafe { self.pointer(device, off + 4).virt().read_volatile() } as u64;
             Bar::MMIO64(addr_lo | (hi << 32), prefetchable)
         } else {
             Bar::MMIO32(addr_lo as u32, prefetchable)
@@ -226,19 +235,19 @@ impl PCI {
             let off = 0x10 + (bar as usize) * 4;
             let align = match value {
                 Bar::MMIO64(_, _) => {
-                    self.pointer(device, off).write_volatile(0xFFFFFFFF);
-                    self.pointer(device, off + 4).write_volatile(0xFFFFFFFF);
+                    self.pointer(device, off).virt().write_volatile(0xFFFFFFFF);
+                    self.pointer(device, off + 4).virt().write_volatile(0xFFFFFFFF);
 
-                    self.pointer(device, off).read_volatile() as u64 & !0b1111
-                        | ((self.pointer(device, off + 4).read_volatile() as u64) << 32)
+                    self.pointer(device, off).virt().read_volatile() as u64 & !0b1111
+                        | ((self.pointer(device, off + 4).virt().read_volatile() as u64) << 32)
                 }
                 Bar::MMIO32(_, _) => {
-                    self.pointer(device, off).write_volatile(0xFFFFFFFF);
-                    self.pointer(device, off).read_volatile() as i32 as i64 as u64 & !0b1111
+                    self.pointer(device, off).virt().write_volatile(0xFFFFFFFF);
+                    self.pointer(device, off).virt().read_volatile() as i32 as i64 as u64 & !0b1111
                 }
                 Bar::IO(_) => {
-                    self.pointer(device, off).write_volatile(0xFFFFFFFF);
-                    self.pointer(device, off).read_volatile() as i32 as i64 as u64 & !0b11
+                    self.pointer(device, off).virt().write_volatile(0xFFFFFFFF);
+                    self.pointer(device, off).virt().read_volatile() as i32 as i64 as u64 & !0b11
                 }
             };
 
@@ -318,23 +327,23 @@ impl PCI {
             match value {
                 Bar::MMIO32(offset, prefetchable) => self
                     .pointer(device, off)
-                    .write_volatile(offset & !0b1111 | ((prefetchable as u32) << 3) | 0b100),
+                    .virt().write_volatile(offset & !0b1111 | ((prefetchable as u32) << 3) | 0b100),
                 Bar::IO(offset) => {
                     self.pointer(device, off)
-                        .write_volatile(offset & !0b11 | 0b1);
+                        .virt().write_volatile(offset & !0b11 | 0b1);
                 }
                 Bar::MMIO64(offset, prefetchable) => {
-                    self.pointer(device, off).write_volatile(
+                    self.pointer(device, off).virt().write_volatile(
                         offset as u32 & !0b1111 | ((prefetchable as u32) << 3) | 0b100,
                     );
                     self.pointer(device, off + 4)
-                        .write_volatile((offset >> 32) as u32)
+                        .virt().write_volatile((offset >> 32) as u32)
                 }
             }
         }
     }
 
-    pub fn pointer(&self, device: PciBdf, offset: usize) -> *mut u32 {
+    pub fn pointer(&self, device: PciBdf, offset: usize) -> Pointer<u32> {
         self.ecam_addr(device, offset)
     }
 }
