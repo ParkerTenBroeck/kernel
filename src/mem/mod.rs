@@ -5,9 +5,6 @@ use crate::{
     dtb::{ByteStream, Dtb, DtbNodes, DtbProperties},
 };
 
-pub static mut ROOT_PAGE: PageTable = PageTable {
-    entries: [PageTableEntry::new(); 512],
-};
 
 /// # Safety
 /// .
@@ -23,38 +20,38 @@ pub unsafe fn page_zeroed() -> *mut PageTable {
     page
 }
 
-#[allow(unsafe_op_in_unsafe_fn)]
-/// # Safety
-/// .
-pub unsafe fn map_pages(virt: usize, phys: usize, size: usize, entry: PageTableEntry) {
-    for p in 0..((size + 0x0FFF) >> 12) {
-        map_page(virt + (p << 12), phys + (p << 12), entry);
-    }
-}
+// #[allow(unsafe_op_in_unsafe_fn)]
+// /// # Safety
+// /// .
+// pub unsafe fn map_pages(virt: usize, phys: usize, size: usize, entry: PageTableEntry) {
+//     for p in 0..((size + 0x0FFF) >> 12) {
+//         map_page(virt + (p << 12), phys + (p << 12), entry);
+//     }
+// }
 
-#[allow(static_mut_refs)]
-/// # Safety
-/// .
-pub unsafe fn map_page(virt: usize, phys: usize, entry: PageTableEntry) {
-    let ppn2 = (virt >> (9 + 9 + 12)) & ((1 << 9) - 1);
-    let ppn1 = (virt >> (9 + 12)) & ((1 << 9) - 1);
-    let ppn0 = (virt >> (12)) & ((1 << 9) - 1);
+// #[allow(static_mut_refs)]
+// /// # Safety
+// /// .
+// pub unsafe fn map_page(virt: usize, phys: usize, entry: PageTableEntry) {
+//     let ppn2 = (virt >> (9 + 9 + 12)) & ((1 << 9) - 1);
+//     let ppn1 = (virt >> (9 + 12)) & ((1 << 9) - 1);
+//     let ppn0 = (virt >> (12)) & ((1 << 9) - 1);
 
-    let mut curr = unsafe { &mut ROOT_PAGE };
+//     let mut curr = unsafe { &mut ROOT_PAGE };
 
-    for ppn in [ppn2, ppn1] {
-        if !curr.entries[ppn].valid() || curr.entries[ppn].is_leaf() {
-            let new = unsafe { page_zeroed() };
+//     for ppn in [ppn2, ppn1] {
+//         if !curr.entries[ppn].valid() || curr.entries[ppn].is_leaf() {
+//             let new = unsafe { page_zeroed() };
 
-            curr.entries[ppn] = PageTableEntry::new()
-                .set_valid(true)
-                .set_ppn(new as u64 >> 12);
-        }
-        curr = unsafe { &mut *((curr.entries[ppn].ppn() << 12) as *mut PageTable) };
-    }
+//             curr.entries[ppn] = PageTableEntry::new()
+//                 .set_valid(true)
+//                 .set_ppn(new as u64 >> 12);
+//         }
+//         curr = unsafe { &mut *((curr.entries[ppn].ppn() << 12) as *mut PageTable) };
+//     }
 
-    curr.entries[ppn0] = entry.set_ppn(phys as u64 >> 12);
-}
+//     curr.entries[ppn0] = entry.set_ppn(phys as u64 >> 12);
+// }
 
 #[derive(Debug)]
 pub struct KernelLayout {

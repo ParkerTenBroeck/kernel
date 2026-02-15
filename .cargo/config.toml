@@ -10,7 +10,9 @@ build-std-features = ["compiler-builtins-mem"]
 rustflags = [
     # "-C", "link-arg=--emit-relocs",
     "-C", "link-arg=-Tlink.map",
+    "-C", "link-arg=-pie",
     "-C", "code-model=medium",
+    "-C", "relocation-model=pic",
     "-C", "target-feature=+zihintpause",
 ]
 

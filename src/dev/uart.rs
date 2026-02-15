@@ -193,8 +193,7 @@ impl Uart16550 {
         }
     }
 
-    pub fn hex(&mut self, value: usize) {
-        // Print exactly 16 hex digits (leading zeros included)
+    pub fn hex(&mut self, value: usize) -> &mut Self{
         for i in (0..core::mem::size_of::<usize>() * 2).rev() {
             let nibble = ((value >> (i * 4)) & 0xF) as u8;
             let c = match nibble {
@@ -204,6 +203,12 @@ impl Uart16550 {
             };
             crate::uart::uart().write_bytes(&[c]);
         }
+        self
+    }
+
+    pub fn str(&mut self, s: &str) -> &mut Self{
+        self.write_str(s);
+        self
     }
 }
 

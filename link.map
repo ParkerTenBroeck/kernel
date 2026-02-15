@@ -2,7 +2,7 @@ OUTPUT_ARCH(riscv)
 ENTRY(_start)
 
 KERNEL_LMA  = 0x81000000;    
-KERNEL_VMA  = 0xFFFFFFC000000000;  
+KERNEL_VMA  = 0x0 - 2M * 1024;  
 KERNEL_OFFSET = KERNEL_VMA - KERNEL_LMA;
 PAGE_SIZE   = 4K;
 
@@ -24,9 +24,17 @@ SECTIONS
     _rodata_start = .;
     *(.rodata .rodata.*)
     *(.srodata .srodata.*)
-    _rodata_end = .;
+  }
+
+  .rela.dyn : AT(ADDR(.rela.dyn) - KERNEL_OFFSET) ALIGN(8) {
+    __rela_dyn_start = .;
+    KEEP(*(.rela.dyn))
+    KEEP(*(.rela.*))
+    __rela_dyn_end = .;
   }
   
+  # we include rela in ro data
+  _rodata_end = .;
 
   .data : AT(ADDR(.data) - KERNEL_OFFSET) ALIGN(PAGE_SIZE) {
     _data_start = .;

@@ -41,7 +41,7 @@ fn layout_order(layout: Layout) -> usize {
 }
 
 fn order_of(value: usize) -> usize {
-    value.trailing_zeros().min(MIN_SIZE_P2 as u32) as usize - MIN_SIZE_P2
+    value.trailing_zeros().max(MIN_SIZE_P2 as u32) as usize - MIN_SIZE_P2
 }
 
 impl Buddy {
@@ -133,12 +133,15 @@ impl Buddy {
         }
 
         let mut size = size & top_mask(0);
+
         while size > 0 {
-            let order = order_of(data as usize).min(size);
+            let order = order_of(data as usize).min(order_of(size));
+
             unsafe {
                 self.free_order_exact(data, order);
                 data = data.byte_add(order_size(order));
             }
+            
             size -= order_size(order);
         }
     }
