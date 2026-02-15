@@ -39,19 +39,6 @@ fn panic(info: &PanicInfo) -> ! {
     }
     let mut out = crate::std::stdio::sout();
     _ = out.write_str("\nKERNEL PANIC\n");
-    if let Some(location) = info.location(){
-        _ = out.write_str("file: ");
-        _ = out.write_str(location.file());
-        _ = out.write_str(":");
-        print_u32_dec(&mut out, location.line());
-        _ = out.write_str(":");
-        print_u32_dec(&mut out, location.column());
-        _ = out.write_str("\n");
-    }
-    if let Some(msg) = info.message().as_str(){
-        _ = out.write_str(msg);
-        _ = out.write_str("\n");
-    }
     print!("{info}");
     arch::halt()
 }

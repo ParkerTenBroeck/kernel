@@ -131,6 +131,7 @@ pub enum PageTableAddressTranslationError<PE> {
     PageTableMalformed,
     NotMapped,
 }
+
 impl<T: PhysToVirt> VirtToPhys for VirtToPhysPageTranslation<T> {
     type Error = PageTableAddressTranslationError<T::Error>;
 
@@ -212,11 +213,9 @@ impl PageTable {
     pub unsafe fn disp_table<T: core::fmt::Write>(
         root: *const PageTable,
         offset: u64,
-        asid: usize,
         mut out: T,
     ) -> core::fmt::Result {
         let level = (root as u64 + offset) as *const PageTable;
-        // writeln!(out, "root:0x{root:p} asid:0x{asid:x}")?;
         crate::uart::uart().write_str("root:");
         crate::uart::uart().hex(root as usize);
         out.write_str("\n")?;

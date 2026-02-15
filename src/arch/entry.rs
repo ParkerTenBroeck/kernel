@@ -106,9 +106,7 @@ unsafe extern "C" fn setup_vm(_: usize, dtb_ptr: *const u8, vma: usize, pma: usi
     crate::stdio::set_sout(early_print);
     relocate_kernel(vma);
 
-
     println!("Discovering memory");
-
 
     let dtb = unsafe { Dtb::from_ptr(dtb_ptr).unwrap() };
 

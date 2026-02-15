@@ -26,6 +26,10 @@ pub unsafe extern "C" fn kernel_entry(
     vma: usize,
     lma: usize,
 ) -> ! {
+
+    uart::early();
+    stdio::set_sout(|str|uart::uart().write_str(str));
+
     println!("Entered S-Mode, hart: {hart_id}, dtb: {dtb_ptr:?}, vma: {vma:#x?}, lma: {lma:#x?}");
 
     unsafe {
@@ -41,9 +45,9 @@ pub unsafe extern "C" fn init_task(_hart_id: usize, dtb_ptr: *const u8) -> ! {
     let dtb = unsafe { Dtb::from_ptr(dtb_ptr).unwrap() };
     println!("{dtb}");
 
-    uart::init(&dtb);
-
     pci::init(&dtb);
+
+    uart::init(&dtb);
 
     dev::test_pci::test_pci();
 

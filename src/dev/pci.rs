@@ -202,7 +202,7 @@ impl PCI {
         let lo = unsafe { self.pointer(device, off).read_volatile() };
         let is_io = (lo & 0x1) != 0;
         if is_io {
-            return Bar::IO(lo & !0x3);
+            return Bar::IO((lo & !0x3) + self.mm_io_reg[0]);
         }
 
         let bar_type = (lo >> 1) & 0x3;
@@ -304,7 +304,7 @@ impl PCI {
                     "Allocated {align:#08x} sized region at {addr:#08x} for io bar {bar} dev {device:?}"
                 );
                 unsafe {
-                    self.write_bar(device, bar, Bar::IO(addr));
+                    self.write_bar(device, bar, Bar::IO(addr-self.mm_io_reg[0]));
                 }
 
                 Layout::from_size_align(align as usize, align as usize).unwrap()

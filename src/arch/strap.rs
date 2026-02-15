@@ -270,6 +270,9 @@ static mut INIT_TASK: MaybeUninit<Task> = MaybeUninit::zeroed();
 
 type InitTask = unsafe extern "C" fn(hart_id: usize, dtb_ptr: *const u8) -> !;
 
+/// # Safety
+///
+/// .
 pub unsafe fn init(init: InitTask, hart_id: usize, dtb_ptr: *const u8) -> ! {
     unsafe extern "C" {
         #[link_name = "strap_vector"]

@@ -1,9 +1,11 @@
 use core::alloc::Layout;
 
 use crate::{
-    arch::page::{PageTable, PageTableEntry},
+    arch::page::{PageTable},
     dtb::{ByteStream, Dtb, DtbNodes, DtbProperties},
 };
+
+pub const PHYS_ADDR_OFFSET: usize = 0xFFFFFFC000000000;
 
 
 /// # Safety
