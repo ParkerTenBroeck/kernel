@@ -1,6 +1,3 @@
 use crate::{dtb::*, pci::pci, println};
 
-
-pub fn init(dtb: &Dtb<'_>) {
-    
-}
+pub fn init(dtb: &Dtb<'_>) {}

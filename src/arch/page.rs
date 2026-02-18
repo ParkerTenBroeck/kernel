@@ -1,3 +1,10 @@
+use crate::mem::Pointer;
+
+#[repr(C, align(4096))]
+pub struct Page {
+    _data: [u8; 4096],
+}
+
 #[repr(C, align(4096))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct PageTable {
@@ -211,67 +218,80 @@ impl PageTable {
     ///
     ///
     pub unsafe fn disp_table<T: core::fmt::Write>(
-        root: crate::mem::pages::Page,
+        root: Pointer<PageTable>,
         mut out: T,
     ) -> core::fmt::Result {
         writeln!(out, "root: {:?}", root.phys())?;
-        fn disp_entry<T: core::fmt::Write>(out: &mut T, vpt: usize, entry: PageTableEntry, level: usize) -> core::fmt::Result{
-            for _ in 0..=level{
+        fn disp_entry<T: core::fmt::Write>(
+            out: &mut T,
+            vpt: usize,
+            entry: PageTableEntry,
+            level: usize,
+        ) -> core::fmt::Result {
+            for _ in 0..=level {
                 out.write_char('|')?;
             }
-            let range = [1 << (9+9+12), 1<<(9+12), 1<<(12)];
-            write!(out, "0x{:016x} -> 0x{:08x}..0x{:08x} ", vpt, entry.ppn() << 12, (entry.ppn() << 12) + range[level])?;
-            out.write_str(if entry.strong_order() {"S0"} else {"--"})?;
-            out.write_char(if entry.bufferable() {'b'} else {'_'})?;
-            out.write_char(if entry.cacheable() {'c'} else {'_'})?;
-            out.write_char(if entry.shareable() {'s'} else {'_'})?;
-            out.write_char(if entry.trustable() {'t'} else {'_'})?;
+            let range = [1 << (9 + 9 + 12), 1 << (9 + 12), 1 << (12)];
+            write!(
+                out,
+                "0x{:016x} -> 0x{:08x}..0x{:08x} ",
+                vpt,
+                entry.ppn() << 12,
+                (entry.ppn() << 12) + range[level]
+            )?;
+            out.write_str(if entry.strong_order() { "S0" } else { "--" })?;
+            out.write_char(if entry.bufferable() { 'b' } else { '_' })?;
+            out.write_char(if entry.cacheable() { 'c' } else { '_' })?;
+            out.write_char(if entry.shareable() { 's' } else { '_' })?;
+            out.write_char(if entry.trustable() { 't' } else { '_' })?;
 
-            out.write_str(if entry.rsw() & 1 == 1 {"R0"} else {"--"})?;
-            out.write_str(if entry.rsw() & 2 == 2 {"R1"} else {"--"})?;
+            out.write_str(if entry.rsw() & 1 == 1 { "R0" } else { "--" })?;
+            out.write_str(if entry.rsw() & 2 == 2 { "R1" } else { "--" })?;
 
-            out.write_char(if entry.accessed() {'d'} else {'_'})?;
-            out.write_char(if entry.dirty() {'a'} else {'_'})?;
-            out.write_char(if entry.global() {'g'} else {'_'})?;
-            out.write_char(if entry.user() {'u'} else {'_'})?;
-            out.write_char(if entry.executable() {'x'} else {'_'})?;
-            out.write_char(if entry.writable() {'w'} else {'_'})?;
-            out.write_char(if entry.readable() {'r'} else {'_'})?;
+            out.write_char(if entry.accessed() { 'd' } else { '_' })?;
+            out.write_char(if entry.dirty() { 'a' } else { '_' })?;
+            out.write_char(if entry.global() { 'g' } else { '_' })?;
+            out.write_char(if entry.user() { 'u' } else { '_' })?;
+            out.write_char(if entry.executable() { 'x' } else { '_' })?;
+            out.write_char(if entry.writable() { 'w' } else { '_' })?;
+            out.write_char(if entry.readable() { 'r' } else { '_' })?;
             writeln!(out)?;
             Ok(())
         }
-        for (i, entry) in unsafe{*root.virt()}.entries.iter().enumerate(){
-            if !entry.valid(){
+        for (i, entry) in unsafe { *root.virt() }.entries.iter().enumerate() {
+            if !entry.valid() {
                 continue;
             }
-            let vpt = i << (9+9+12);
-            let vpt = (((vpt as isize) << (64-39)) >> (64-39)) as usize;
-            if entry.is_leaf(){
+            let vpt = i << (9 + 9 + 12);
+            let vpt = (((vpt as isize) << (64 - 39)) >> (64 - 39)) as usize;
+            if entry.is_leaf() {
                 disp_entry(&mut out, vpt, *entry, 0)?;
                 continue;
             }
             writeln!(out, "|0x{:08x}", entry.ppn() << 12)?;
-            let level = unsafe{&*crate::mem::pages::Page::from_phys((entry.ppn() << 12) as *mut PageTable).virt()};
-            for (i, entry) in level.entries.iter().enumerate(){
-                if !entry.valid(){
+            let level =
+                unsafe { &*Pointer::from_phys((entry.ppn() << 12) as *mut PageTable).virt() };
+            for (i, entry) in level.entries.iter().enumerate() {
+                if !entry.valid() {
                     continue;
                 }
-                let vpt = vpt + (i << (9+12));
-                if entry.is_leaf(){
+                let vpt = vpt + (i << (9 + 12));
+                if entry.is_leaf() {
                     disp_entry(&mut out, vpt, *entry, 1)?;
                     continue;
                 }
                 writeln!(out, "||0x{:08x}", entry.ppn() << 12)?;
-                let level = unsafe{&*crate::mem::pages::Page::from_phys((entry.ppn() << 12) as *mut PageTable).virt()};
-            for (i, entry) in level.entries.iter().enumerate(){
-                    if !entry.valid(){
+                let level =
+                    unsafe { &*Pointer::from_phys((entry.ppn() << 12) as *mut PageTable).virt() };
+                for (i, entry) in level.entries.iter().enumerate() {
+                    if !entry.valid() {
                         continue;
                     }
                     let vpt = vpt + (i << 12);
-                    if entry.is_leaf(){
+                    if entry.is_leaf() {
                         disp_entry(&mut out, vpt, *entry, 2)?;
                         continue;
-                    }else{
+                    } else {
                         writeln!(out, "||invalid :3")?;
                     }
                 }
@@ -495,72 +515,94 @@ impl core::ops::BitOr for PageTableEntry {
     }
 }
 
-
-pub struct PageTableRoot{
-    root: crate::mem::Pointer<PageTable>
+pub struct PageTableRoot {
+    root: crate::mem::Pointer<PageTable>,
 }
 
-impl PageTableRoot{
+impl PageTableRoot {
     /// # Safety
     ///
     /// page table must be a valid root
-    pub const unsafe fn from(root:crate::mem::Pointer<PageTable>) -> Self{
+    pub const unsafe fn from(root: crate::mem::Pointer<PageTable>) -> Self {
         Self { root }
     }
 
-    pub fn new(supplier: impl Fn() -> crate::mem::Pointer<PageTable>) -> Self{
+    pub fn new(supplier: impl Fn() -> crate::mem::Pointer<PageTable>) -> Self {
         Self { root: supplier() }
     }
 
-    pub fn root(&self) -> crate::mem::Pointer<PageTable>{
+    pub fn root(&self) -> crate::mem::Pointer<PageTable> {
         self.root
     }
 
-    pub fn map_region(&mut self, mut virt: usize, mut phys: usize, size: usize, entry: PageTableEntry, supplier: impl Fn() -> crate::mem::Pointer<PageTable>) -> Result<(), ()>{
-        let mut size = size.next_multiple_of(1<<12);
-        while size > 0{
-            if virt.is_multiple_of(1<<(12+18))&&phys.is_multiple_of(1<<(12+18))&&size>=1<<(12+18){
+    pub fn map_region(
+        &mut self,
+        mut virt: usize,
+        mut phys: usize,
+        size: usize,
+        entry: PageTableEntry,
+        supplier: impl Fn() -> crate::mem::Pointer<PageTable>,
+    ) -> Result<(), ()> {
+        let mut size = size.next_multiple_of(1 << 12);
+        while size > 0 {
+            if virt.is_multiple_of(1 << (12 + 18))
+                && phys.is_multiple_of(1 << (12 + 18))
+                && size >= 1 << (12 + 18)
+            {
                 self.map_huge_huge_page(virt, phys, entry, &supplier)?;
-                size -= 1<<(12+18);
-                virt += 1<<(12+18);
-                phys += 1<<(12+18);
-            }else if virt.is_multiple_of(1<<(12+9))&&phys.is_multiple_of(1<<(12+9))&&size>=1<<(12+9){
+                size -= 1 << (12 + 18);
+                virt += 1 << (12 + 18);
+                phys += 1 << (12 + 18);
+            } else if virt.is_multiple_of(1 << (12 + 9))
+                && phys.is_multiple_of(1 << (12 + 9))
+                && size >= 1 << (12 + 9)
+            {
                 self.map_huge_page(virt, phys, entry, &supplier)?;
-                size -= 1<<(12+9);
-                virt += 1<<(12+9);
-                phys += 1<<(12+9);
-            }else{
+                size -= 1 << (12 + 9);
+                virt += 1 << (12 + 9);
+                phys += 1 << (12 + 9);
+            } else {
                 self.map_page(virt, phys, entry, &supplier)?;
-                size -= 1<<12;
-                virt += 1<<12;
-                phys += 1<<12;
+                size -= 1 << 12;
+                virt += 1 << 12;
+                phys += 1 << 12;
             }
-            
         }
         Ok(())
     }
 
-    pub fn map_huge_huge_page(&mut self, virt: usize, phys: usize, entry: PageTableEntry, supplier: impl Fn() -> crate::mem::Pointer<PageTable>) -> Result<(), ()>{
+    pub fn map_huge_huge_page(
+        &mut self,
+        virt: usize,
+        phys: usize,
+        entry: PageTableEntry,
+        supplier: impl Fn() -> crate::mem::Pointer<PageTable>,
+    ) -> Result<(), ()> {
         let ppn2 = (virt >> (9 + 9 + 12)) & ((1 << 9) - 1);
 
         let curr = unsafe { &mut *self.root.virt() };
-        if curr.entries[ppn2].valid(){
-            return Err(())
+        if curr.entries[ppn2].valid() {
+            return Err(());
         }
 
         curr.entries[ppn2] = entry.set_ppn(phys as u64 >> 12);
         Ok(())
     }
 
-    pub fn map_huge_page(&mut self, virt: usize, phys: usize, entry: PageTableEntry, supplier: impl Fn() -> crate::mem::Pointer<PageTable>) -> Result<(), ()>{
+    pub fn map_huge_page(
+        &mut self,
+        virt: usize,
+        phys: usize,
+        entry: PageTableEntry,
+        supplier: impl Fn() -> crate::mem::Pointer<PageTable>,
+    ) -> Result<(), ()> {
         let ppn2 = (virt >> (9 + 9 + 12)) & ((1 << 9) - 1);
         let ppn1 = (virt >> (9 + 12)) & ((1 << 9) - 1);
 
         let mut curr = unsafe { &mut *self.root.virt() };
 
-        
-        if curr.entries[ppn2].valid() && curr.entries[ppn2].is_leaf(){
-            return Err(())
+        if curr.entries[ppn2].valid() && curr.entries[ppn2].is_leaf() {
+            return Err(());
         }
 
         if !curr.entries[ppn2].valid() {
@@ -568,18 +610,24 @@ impl PageTableRoot{
                 .set_valid(true)
                 .set_ppn(supplier().phys() as u64 >> 12);
         }
-        let page = crate::mem::pages::Page::from_phys((curr.entries[ppn2].ppn() << 12) as *mut PageTable);
+        let page = Pointer::from_phys((curr.entries[ppn2].ppn() << 12) as *mut PageTable);
         curr = unsafe { &mut *(page.virt()) };
 
-        if curr.entries[ppn1].valid(){
-            return Err(())
+        if curr.entries[ppn1].valid() {
+            return Err(());
         }
 
         curr.entries[ppn1] = entry.set_ppn(phys as u64 >> 12);
         Ok(())
     }
 
-    pub fn map_page(&mut self, virt: usize, phys: usize, entry: PageTableEntry, supplier: impl Fn() -> crate::mem::Pointer<PageTable>) -> Result<(), ()>{
+    pub fn map_page(
+        &mut self,
+        virt: usize,
+        phys: usize,
+        entry: PageTableEntry,
+        supplier: impl Fn() -> crate::mem::Pointer<PageTable>,
+    ) -> Result<(), ()> {
         let ppn2 = (virt >> (9 + 9 + 12)) & ((1 << 9) - 1);
         let ppn1 = (virt >> (9 + 12)) & ((1 << 9) - 1);
         let ppn0 = (virt >> (12)) & ((1 << 9) - 1);
@@ -589,21 +637,21 @@ impl PageTableRoot{
         let mut curr = unsafe { &mut *self.root.virt() };
 
         for ppn in [ppn2, ppn1] {
-            if curr.entries[ppn].valid() && curr.entries[ppn].is_leaf(){
-                return Err(())
+            if curr.entries[ppn].valid() && curr.entries[ppn].is_leaf() {
+                return Err(());
             }
             if !curr.entries[ppn].valid() {
                 curr.entries[ppn] = PageTableEntry::new()
                     .set_valid(true)
-                    .set_ppn(supplier().phys() as u64 >> 12);   
+                    .set_ppn(supplier().phys() as u64 >> 12);
             }
-                
-            let page = crate::mem::pages::Page::from_phys((curr.entries[ppn].ppn() << 12) as *mut PageTable);
+
+            let page = Pointer::from_phys((curr.entries[ppn].ppn() << 12) as *mut PageTable);
             curr = unsafe { &mut *(page.virt()) };
         }
 
-        if curr.entries[ppn0].valid(){
-            return Err(())
+        if curr.entries[ppn0].valid() {
+            return Err(());
         }
 
         curr.entries[ppn0] = entry.set_ppn(phys as u64 >> 12);
@@ -611,10 +659,8 @@ impl PageTableRoot{
     }
 }
 
-impl core::fmt::Display for PageTableRoot{
+impl core::fmt::Display for PageTableRoot {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        unsafe{
-            PageTable::disp_table(self.root, f)
-        }
+        unsafe { PageTable::disp_table(self.root, f) }
     }
 }

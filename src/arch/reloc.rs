@@ -3,27 +3,25 @@ type ElfAddr = u64;
 #[cfg(target_pointer_width = "32")]
 type ElfAddr = u32;
 
-
 #[repr(C)]
 #[derive(Copy, Clone)]
 struct ElfRela {
     r_offset: ElfAddr,
-    r_info:   ElfAddr,
+    r_info: ElfAddr,
     r_addend: ElfAddr,
 }
 
-const R_RISCV_RELATIVE: ElfAddr = 3; 
+const R_RISCV_RELATIVE: ElfAddr = 3;
 
 /// # Safety
-/// uhhh 
+/// uhhh
 #[allow(unsafe_op_in_unsafe_fn)]
 pub unsafe fn relocate_kernel(to: usize) {
     let current_addr: usize;
     let link_addr: usize;
     let rela_start: *const ElfRela;
     let rela_end: *const ElfRela;
-    
-    
+
     core::arch::asm!(
         "
         .option push
@@ -45,7 +43,10 @@ pub unsafe fn relocate_kernel(to: usize) {
 
     core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
 
-    let rela = core::slice::from_raw_parts(rela_start, (rela_end as usize - rela_start as usize) / core::mem::size_of::<ElfRela>());
+    let rela = core::slice::from_raw_parts(
+        rela_start,
+        (rela_end as usize - rela_start as usize) / core::mem::size_of::<ElfRela>(),
+    );
 
     let reloc_offset: isize = (to as isize) - (link_addr as isize);
 
@@ -58,7 +59,6 @@ pub unsafe fn relocate_kernel(to: usize) {
 
         let addr = (r.r_offset as usize).wrapping_sub(va_kernel_link_pa_offset) as *mut ElfAddr;
 
-
         let mut relocated_addr: usize = r.r_addend as usize;
 
         // Don’t relocate VDSO-like symbols linked from 0; only slide kernel-linked addresses.
@@ -67,7 +67,6 @@ pub unsafe fn relocate_kernel(to: usize) {
         }
 
         addr.write_volatile(relocated_addr as ElfAddr);
-
     }
 
     core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);

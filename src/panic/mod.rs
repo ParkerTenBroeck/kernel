@@ -1,4 +1,4 @@
-use core::{fmt::{Write}, panic::PanicInfo, sync::atomic::AtomicBool};
+use core::{fmt::Write, panic::PanicInfo, sync::atomic::AtomicBool};
 
 use crate::{arch, print};
 

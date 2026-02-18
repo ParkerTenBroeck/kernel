@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![feature(alloc_layout_extra)]
 
 pub mod alloc;
 pub mod arch;
@@ -9,9 +10,11 @@ pub mod fs;
 pub mod interrupt;
 pub mod mem;
 pub mod panic;
+pub mod sbi;
 pub mod std;
 pub mod sync;
 pub mod task;
+pub mod timer;
 pub mod util;
 
 use dev::*;
@@ -26,7 +29,6 @@ pub unsafe extern "C" fn kernel_entry(
     vma: usize,
     lma: usize,
 ) -> ! {
-
     println!("Kernel entry, hart: {hart_id}, dtb: {dtb_ptr:?}, vma: {vma:#x?}, lma: {lma:#x?}");
 
     unsafe {
@@ -46,23 +48,25 @@ pub unsafe extern "C" fn init_task(_hart_id: usize, dtb_ptr: *const u8) -> ! {
 
     uart::init(&dtb);
 
-    dev::test_pci::test_pci();
+    // timer::clint::init(&dtb);
 
-    vga::init(1920, 1080);
-    display::update_buffer(vga::framebuffer());
+    // dev::test_pci::test_pci();
 
-    stdio::set_sout(|str| {
-        uart::uart().write_str(str);
-        display::print(str.as_bytes());
-    });
+    // vga::init(1920, 1080);
+    // display::update_buffer(vga::framebuffer());
 
-    for c in '\x20'..='\x7E' {
-        use core::fmt::Write;
-        _ = stdio::sout().write_char(c)
-    }
-    println!();
+    // stdio::set_sout(|str| {
+    //     uart::uart().write_str(str);
+    //     display::print(str.as_bytes());
+    // });
 
-    syscon::init(&dtb);
+    // for c in '\x20'..='\x7E' {
+    //     use core::fmt::Write;
+    //     _ = stdio::sout().write_char(c)
+    // }
+    // println!();
+
+    // syscon::init(&dtb);
 
     arch::halt()
 }

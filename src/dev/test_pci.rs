@@ -29,17 +29,21 @@ pub fn test_pci() {
                 .set(pci::CommandRegister::MEMORY_SPACE, true),
         );
 
-        let addr = pci::pci().read_bar(device, 0).pointer::<()>(pci::pci()).virt();
+        let addr = pci::pci()
+            .read_bar(device, 0)
+            .pointer::<()>(pci::pci())
+            .virt();
 
         for i in 0..=255 {
             addr.byte_add(0).cast::<u8>().write_volatile(i);
-            addr.byte_add(1).cast::<u8>().write_volatile(4);
+            addr.byte_add(1).cast::<u8>().write_volatile(1);
 
             let offset = addr.byte_add(4).cast::<u32>().read_volatile();
-            let data = addr.byte_add(8).cast::<u32>().read_volatile();
+            println!("{offset:x?}");
+            let data = addr.byte_add(8).cast::<u8>().read_volatile();
 
             addr.byte_add(offset as usize)
-                .cast::<u32>()
+                .cast::<u8>()
                 .write_volatile(data);
 
             let count = addr.byte_add(12).cast::<u32>().read_volatile();

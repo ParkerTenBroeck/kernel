@@ -4,9 +4,11 @@ use core::{
     ptr::{NonNull, addr_of_mut},
 };
 
-use riscv::register::{satp::Mode, scause, stvec::Stvec};
+use riscv::register::{scause, stvec::Stvec};
 
-use crate::{arch::page, mem::pages::Page, print, println};
+use crate::{
+    println,
+};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -166,10 +168,20 @@ pub extern "C" fn strap_handler(
     sepc: usize,
     stval: usize,
 ) {
-    println!("{frame:x?}");
-
     if scause.is_exception() {
-        frame.pc += 4;
+        println!("{frame:x?}");
+        let instr_enc = unsafe { (sepc as *const u16).read_volatile() };
+        if instr_enc & 0b11 != 0b11 {
+            frame.pc += 2;
+        } else if instr_enc & 0b11100 != 0b11100 {
+            frame.pc += 4;
+        } else if instr_enc & 0b111111 != 0b011111 {
+            frame.pc += 6;
+        } else if instr_enc & 0b1111111 != 0b0111111 {
+            frame.pc += 8;
+        } else if instr_enc & 0b1111111 == 0b1111111 {
+            frame.pc += 10 + 16 * ((instr_enc >> 12) as usize & 0b111);
+        }
 
         let desc = match scause.code() {
             0 => "Instruction address misaligned",
@@ -178,7 +190,7 @@ pub extern "C" fn strap_handler(
             3 => {
                 println!("Breakpoint");
                 return;
-            },
+            }
             4 => "Load address misaligned",
             5 => "Load access fault",
             6 => "Store address mimsaligned",
@@ -217,26 +229,14 @@ pub extern "C" fn strap_handler(
         );
     } else {
         match scause.code() {
-            0x7 => {}
+            0x5 => {
+                println!("Timer Interrupt");
+            }
+            0x9 => {
+                panic!("External S-Mode interrupt");
+            }
             0xb => {
-                // let pending = unsafe { plic::mclaim_int() };
-                // use core::sync::atomic::Ordering;
-                // if pending != 0 {
-                //     if let Some(ptr) = PLIC_HANDLERS
-                //         .get(pending as usize)
-                //         .and_then(|v: &AtomicPtr<()>| NonNull::new(v.load(Ordering::Acquire)))
-                //     {
-                //         let func: fn() = unsafe { core::mem::transmute(ptr) };
-                //         func()
-                //     } else {
-                //         panic!("\n\n\nplic: 0x{pending:016x}, mtval: 0x{mtval:016x}\nUnknown plic interrupt value. Cannot continue resetting\n\n");
-                //     }
-                //     unsafe {
-                //         plic::mint_complete(pending);
-                //     }
-                // } else {
-                //     panic!("\n\n\nscause: 0x{scause:016x}, mepc: 0x{mepc:016x}, mtval: 0x{mtval:016x}\nPlic Interrupt but no pending interrupt found? Cannot continue resetting\n\n");
-                // }
+                panic!("External M-Mode interrupt");
             }
             _ => {
                 panic!(
@@ -295,9 +295,9 @@ pub unsafe fn init(init: InitTask, hart_id: usize, dtb_ptr: *const u8) -> ! {
     println!("Beginning Init Task");
     unsafe {
         core::arch::asm!(
-            
+
             "
-            //ebreak 
+            ebreak
             move sp, {0}
             tail strap_return",
             in(reg) &mut frame,

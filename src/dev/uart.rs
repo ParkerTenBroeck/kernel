@@ -6,7 +6,18 @@ pub fn uart() -> &'static mut Uart16550 {
     unsafe { (&raw mut UART).as_mut().unwrap_unchecked() }
 }
 
-pub fn early() {
+pub fn early_pre_vm() {
+    unsafe {
+        UART = Uart16550::new(0x1000_0000 as *mut ());
+    }
+    uart().init(1);
+    stdio::set_sout(|str| uart().write_str(str));
+}
+
+pub fn early_post_vm() {
+    unsafe {
+        UART = Uart16550::new(Pointer::from_phys(0x1000_0000 as *mut ()).virt());
+    }
     uart().init(1);
     stdio::set_sout(|str| uart().write_str(str));
 }
@@ -35,36 +46,36 @@ pub fn init(dtb: &Dtb) {
 
     stdio::set_sout(|str| uart().write_str(str));
 
-    unsafe{
-        use crate::dev::pci;
+    // unsafe{
+    //     use crate::dev::pci;
 
-        let Some((device, _)) = pci::pci().find_device_vendor(0x1b36, 0x02) else {
-            panic!("uart pci device not found")
-        };
+    //     let Some((device, _)) = pci::pci().find_device_vendor(0x1b36, 0x02) else {
+    //         panic!("uart pci device not found")
+    //     };
 
-        let (_, command) = pci::pci().read_cmd_status(device);
+    //     let (_, command) = pci::pci().read_cmd_status(device);
 
-        pci::pci().write_cmd_status(device,
-            *command.clone()
-            .set(pci::CommandRegister::IO_SPACE, false)
-            .set(pci::CommandRegister::MEMORY_SPACE, false)
-        );
+    //     pci::pci().write_cmd_status(device,
+    //         *command.clone()
+    //         .set(pci::CommandRegister::IO_SPACE, false)
+    //         .set(pci::CommandRegister::MEMORY_SPACE, false)
+    //     );
 
-        pci::pci().allocate_bar(device, 0);
+    //     pci::pci().allocate_bar(device, 0);
 
-        pci::pci().write_cmd_status(device,
-            *command.clone()
-            .set(pci::CommandRegister::IO_SPACE, true)
-        );
+    //     pci::pci().write_cmd_status(device,
+    //         *command.clone()
+    //         .set(pci::CommandRegister::IO_SPACE, true)
+    //     );
 
-        let start = pci::pci().read_bar(device, 0).pointer(pci::pci()).virt();
+    //     let start = pci::pci().read_bar(device, 0).pointer(pci::pci()).virt();
 
-        println!("{start:x?}");
+    //     println!("{start:x?}");
 
-        let mut uart = Uart16550::new_with_stride(start, 1);
-        uart.init(0);
-        // uart.write_str("PCI Uart Hello\n"); 
-    }
+    //     let mut uart = Uart16550::new_with_stride(start, 1);
+    //     uart.init(0);
+    //     // uart.write_str("PCI Uart Hello\n");
+    // }
 }
 
 /// read: RBR, write: THR, when DLAB=1: DLL
@@ -196,7 +207,7 @@ impl Uart16550 {
         }
     }
 
-    pub fn hex(&mut self, value: usize) -> &mut Self{
+    pub fn hex(&mut self, value: usize) -> &mut Self {
         for i in (0..core::mem::size_of::<usize>() * 2).rev() {
             let nibble = ((value >> (i * 4)) & 0xF) as u8;
             let c = match nibble {
@@ -209,7 +220,7 @@ impl Uart16550 {
         self
     }
 
-    pub fn str(&mut self, s: &str) -> &mut Self{
+    pub fn str(&mut self, s: &str) -> &mut Self {
         self.write_str(s);
         self
     }

@@ -96,12 +96,66 @@ impl<'a> ByteStream<'a> {
         self.chunk_ref().copied()
     }
 
-    integer!(self, u8,      u8_array,       u8_cells,       u8_cells_arr,       u8_bytes,       u8_bytes_arr,       u8);
-    integer!(self, u16,     u16_array,      u16_cells,      u16_cells_arr,      u16_bytes,      u16_bytes_arr,      u16);
-    integer!(self, u32,     u32_array,      u32_cells,      u32_cells_arr,      u32_bytes,      u32_bytes_arr,      u32);
-    integer!(self, u64,     u64_array,      u64_cells,      u64_cells_arr,      u64_bytes,      u64_bytes_arr,      u64);
-    integer!(self, u128,    u128_array,     u128_cells,     u128_cells_arr,     u128_bytes,     u128_bytes_arr,     u128);
-    integer!(self, usize,   usize_array,    usize_cells,    usize_cells_arr,    usize_bytes,    usize_bytes_arr,    usize);
+    integer!(
+        self,
+        u8,
+        u8_array,
+        u8_cells,
+        u8_cells_arr,
+        u8_bytes,
+        u8_bytes_arr,
+        u8
+    );
+    integer!(
+        self,
+        u16,
+        u16_array,
+        u16_cells,
+        u16_cells_arr,
+        u16_bytes,
+        u16_bytes_arr,
+        u16
+    );
+    integer!(
+        self,
+        u32,
+        u32_array,
+        u32_cells,
+        u32_cells_arr,
+        u32_bytes,
+        u32_bytes_arr,
+        u32
+    );
+    integer!(
+        self,
+        u64,
+        u64_array,
+        u64_cells,
+        u64_cells_arr,
+        u64_bytes,
+        u64_bytes_arr,
+        u64
+    );
+    integer!(
+        self,
+        u128,
+        u128_array,
+        u128_cells,
+        u128_cells_arr,
+        u128_bytes,
+        u128_bytes_arr,
+        u128
+    );
+    integer!(
+        self,
+        usize,
+        usize_array,
+        usize_cells,
+        usize_cells_arr,
+        usize_bytes,
+        usize_bytes_arr,
+        usize
+    );
 
     pub const fn align(&mut self, align: usize) {
         let offset = (align - (self.1 & (align - 1))) & (align - 1);

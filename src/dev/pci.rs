@@ -84,7 +84,7 @@ impl Bar {
             Bar::IO(addr) => {
                 let addr: usize = addr.try_into().unwrap();
                 addr + pci.mm_io_reg[0] as usize
-            },
+            }
         };
 
         Pointer::from_phys(addr as *mut T)
@@ -236,7 +236,9 @@ impl PCI {
             let align = match value {
                 Bar::MMIO64(_, _) => {
                     self.pointer(device, off).virt().write_volatile(0xFFFFFFFF);
-                    self.pointer(device, off + 4).virt().write_volatile(0xFFFFFFFF);
+                    self.pointer(device, off + 4)
+                        .virt()
+                        .write_volatile(0xFFFFFFFF);
 
                     self.pointer(device, off).virt().read_volatile() as u64 & !0b1111
                         | ((self.pointer(device, off + 4).virt().read_volatile() as u64) << 32)
@@ -262,7 +264,7 @@ impl PCI {
             (align, Bar::MMIO32(_, b)) => {
                 let align = 1u32 << (align.trailing_zeros());
                 let addr = self.mm_32_bump + self.mm_32_reg[0];
-                let alignment_fix = (align - (addr & !(1 - align))) & !(1 - align);
+                let alignment_fix = addr.next_multiple_of(align) - addr;
                 let addr = addr + alignment_fix;
 
                 let offset = align + alignment_fix;
@@ -282,8 +284,8 @@ impl PCI {
             (align, Bar::MMIO64(_, b)) => {
                 let align = 1u64 << (align.trailing_zeros());
                 let addr = self.mm_64_bump + self.mm_64_reg[0];
-                let alignment_fix = (align - (addr & !(1 - align))) & !(1 - align);
-                let addr = addr + alignment_fix;
+                let alignment_fix = (align - (addr & (align - 1))) & !(align - 1);
+                let addr = addr.next_multiple_of(align) - addr;
 
                 let offset = align + alignment_fix;
                 self.mm_64_bump += offset;
@@ -301,7 +303,7 @@ impl PCI {
             (align, Bar::IO(_)) => {
                 let align = 1u32 << (align.trailing_zeros());
                 let addr = self.mm_io_bump + self.mm_io_reg[0];
-                let alignment_fix = (align - (addr & !(1 - align))) & !(1 - align);
+                let alignment_fix = addr.next_multiple_of(align) - addr;
                 let addr = addr + alignment_fix;
 
                 let offset = align + alignment_fix;
@@ -313,7 +315,7 @@ impl PCI {
                     "Allocated {align:#08x} sized region at {addr:#08x} for io bar {bar} dev {device:?}"
                 );
                 unsafe {
-                    self.write_bar(device, bar, Bar::IO(addr-self.mm_io_reg[0]));
+                    self.write_bar(device, bar, Bar::IO(addr - self.mm_io_reg[0]));
                 }
 
                 Layout::from_size_align(align as usize, align as usize).unwrap()
@@ -327,17 +329,20 @@ impl PCI {
             match value {
                 Bar::MMIO32(offset, prefetchable) => self
                     .pointer(device, off)
-                    .virt().write_volatile(offset & !0b1111 | ((prefetchable as u32) << 3) | 0b100),
+                    .virt()
+                    .write_volatile(offset & !0b1111 | ((prefetchable as u32) << 3) | 0b100),
                 Bar::IO(offset) => {
                     self.pointer(device, off)
-                        .virt().write_volatile(offset & !0b11 | 0b1);
+                        .virt()
+                        .write_volatile(offset & !0b11 | 0b1);
                 }
                 Bar::MMIO64(offset, prefetchable) => {
                     self.pointer(device, off).virt().write_volatile(
                         offset as u32 & !0b1111 | ((prefetchable as u32) << 3) | 0b100,
                     );
                     self.pointer(device, off + 4)
-                        .virt().write_volatile((offset >> 32) as u32)
+                        .virt()
+                        .write_volatile((offset >> 32) as u32)
                 }
             }
         }
@@ -368,12 +373,13 @@ pub fn init(dtb: &Dtb<'_>) {
     let props = node.properties();
     let [start, size] = props.expect_value(b"reg", ByteStream::u64_array::<2>);
 
-
-    let start_cells = dtb.root().properties().expect_value(b"#address-cells", ByteStream::u32);
+    let start_cells = dtb
+        .root()
+        .properties()
+        .expect_value(b"#address-cells", ByteStream::u32);
     let size_cells = props.expect_value(b"#size-cells", ByteStream::u32);
     let interrupt_cells = props.expect_value(b"#interrupt-cells", ByteStream::u32);
     let address_cells = props.expect_value(b"#address-cells", ByteStream::u32);
-
 
     let [bus_start, bus_end] = props.expect_value(b"bus-range", ByteStream::u32_array::<2>);
 
@@ -383,9 +389,21 @@ pub fn init(dtb: &Dtb<'_>) {
         (_addr_64, start_64, size_64),
     ) = props.expect_value(b"ranges", |stream| {
         Some((
-            (stream.u128_cells(address_cells)?, stream.u32_cells(start_cells)?, stream.u32_cells(size_cells)?),
-            (stream.u128_cells(address_cells)?, stream.u32_cells(start_cells)?, stream.u32_cells(size_cells)?),
-            (stream.u128_cells(address_cells)?, stream.u64_cells(start_cells)?, stream.u64_cells(size_cells)?)
+            (
+                stream.u128_cells(address_cells)?,
+                stream.u32_cells(start_cells)?,
+                stream.u32_cells(size_cells)?,
+            ),
+            (
+                stream.u128_cells(address_cells)?,
+                stream.u32_cells(start_cells)?,
+                stream.u32_cells(size_cells)?,
+            ),
+            (
+                stream.u128_cells(address_cells)?,
+                stream.u64_cells(start_cells)?,
+                stream.u64_cells(size_cells)?,
+            ),
         ))
     });
 

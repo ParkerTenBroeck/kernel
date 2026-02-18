@@ -1,4 +1,4 @@
-use core::ptr::addr_of_mut;
+use core::{ptr::addr_of_mut};
 
 #[repr(C)]
 pub struct Plic {
@@ -72,10 +72,18 @@ pub struct PlicDev {
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(clippy::missing_safety_doc)]
 impl PlicDev {
+    pub const unsafe fn new(base: *mut Plic, max_int: u32) -> Self {
+        Self { max_int, base }
+    }
+
     pub unsafe fn clear(&mut self) {
+        self.mclear();
+        self.sclear();
+    }
+
+    pub unsafe fn mclear(&mut self) {
         for i in 1..self.max_int {
             self.disable_m_interrupt(i);
-            self.disable_s_interrupt(i);
             self.set_priority(i, 0);
         }
 
@@ -87,6 +95,14 @@ impl PlicDev {
                 break;
             }
         }
+    }
+
+    pub unsafe fn sclear(&mut self) {
+        for i in 1..self.max_int {
+            self.disable_s_interrupt(i);
+            self.set_priority(i, 0);
+        }
+
         loop {
             let v = self.sclaim_int();
             if v != 0 {
@@ -98,7 +114,7 @@ impl PlicDev {
     }
 
     pub unsafe fn mclaim_int(&mut self) -> u32 {
-        addr_of_mut!((*self.base).h0_mclaim).read_unaligned()
+        addr_of_mut!((*self.base).h0_mclaim).read_volatile()
     }
 
     pub unsafe fn enable_m_interrupt(&mut self, int: u32) {
@@ -120,7 +136,7 @@ impl PlicDev {
     }
 
     pub unsafe fn sclaim_int(&mut self) -> u32 {
-        addr_of_mut!((*self.base).h0_sclaim).read_unaligned()
+        addr_of_mut!((*self.base).h0_sclaim).read_volatile()
     }
 
     pub unsafe fn enable_s_interrupt(&mut self, int: u32) {

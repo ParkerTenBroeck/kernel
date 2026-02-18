@@ -1,4 +1,4 @@
-cargo build --release
+cargo build
 
 qemu-system-riscv64 \
   -s -S \
@@ -15,5 +15,5 @@ qemu-system-riscv64 \
   -device virtio-net-pci,netdev=net0 \
   -drive if=none,format=raw,readonly=off,file=fs.img,id=drv0 \
   -device virtio-blk-pci,drive=drv0 \
-  -kernel target/riscv64gc-unknown-none-elf/release/kernel
+  -kernel target/riscv64gc-unknown-none-elf/debug/kernel
   

@@ -1,30 +1,68 @@
 pub mod pages;
 
-use crate::{
-    dtb::{ByteStream, Dtb, DtbNodes, DtbProperties},
-};
+use crate::dtb::{ByteStream, Dtb, DtbNodes, DtbProperties};
 
 pub const PHYS_ADDR_OFFSET: usize = 0xFFFFFFC000000000;
 
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Pointer<T>(*mut T);
 
-impl<T> Pointer<T>{
-    pub fn phys(&self) -> *mut T{
+impl<T> Ord for Pointer<T> {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.0.cmp(&other.0)
+    }
+}
+
+impl<T> PartialOrd for Pointer<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T> core::hash::Hash for Pointer<T> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+impl<T> Eq for Pointer<T> {}
+
+impl<T> PartialEq for Pointer<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<T> core::fmt::Debug for Pointer<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("Pointer").field(&self.0).finish()
+    }
+}
+
+impl<T> Copy for Pointer<T> {}
+
+impl<T> Clone for Pointer<T> {
+    fn clone(&self) -> Self { *self }
+}
+
+impl<T> Pointer<T> {
+    pub fn phys(&self) -> *mut T {
         (self.0 as usize - PHYS_ADDR_OFFSET) as *mut T
     }
 
-    pub fn virt(&self) -> *mut T{
+    pub fn virt(&self) -> *mut T {
         self.0
     }
 
-    pub fn from_phys(phys: *mut T) -> Self{
+    pub fn from_phys(phys: *mut T) -> Self {
         Self((phys as usize + PHYS_ADDR_OFFSET) as *mut T)
     }
 
-    pub fn from_virt(virt: *mut T) -> Self{
+    pub fn from_virt(virt: *mut T) -> Self {
         Self(virt)
+    }
+
+    pub fn cast<N>(self) -> Pointer<N> {
+        Pointer(self.0.cast())
     }
 }
 

@@ -54,7 +54,7 @@ SECTIONS
 
   .stack (NOLOAD) : AT(ADDR(.stack) - KERNEL_OFFSET) ALIGN(PAGE_SIZE){
       _stack_start = .;
-      . += 4K*4;
+      . += 4K*16;
       _stack_top = .;
   } 
 

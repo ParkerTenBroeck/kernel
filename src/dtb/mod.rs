@@ -235,9 +235,9 @@ impl<'a> Dtb<'a> {
         }
     }
 
-    pub const fn slice(&self) -> &'a [u8]{
+    pub const fn slice(&self) -> &'a [u8] {
         self.slice
-    } 
+    }
 
     pub fn reserved(&self) -> DtbReserveIter<'a> {
         DtbReserveIter::new(self.reserved)
@@ -308,5 +308,15 @@ impl<'a> DtbNode<'a> {
 
     pub fn properties_recursive(&self) -> DtbRecursivePropertyIter<'a> {
         DtbRecursivePropertyIter::new(self.body)
+    }
+
+    #[track_caller]
+    pub fn addr_size_cells(&self) -> [u32; 2] {
+        [
+            self.properties()
+                .expect_value(b"#address-cells", ByteStream::u32),
+            self.properties()
+                .expect_value(b"#size-cells", ByteStream::u32),
+        ]
     }
 }

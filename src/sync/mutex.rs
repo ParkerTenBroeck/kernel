@@ -15,10 +15,18 @@ impl RawSpinLock {
         }
     }
 
-    #[track_caller]
     pub fn lock(&self) {
         while self.lock.swap(true, Ordering::Acquire) {
             core::hint::spin_loop();
+        }
+    }
+
+    pub fn lock_with(&self, before: impl Fn(), fail: impl Fn()) {
+        while {
+            before();
+            self.lock.swap(true, Ordering::Acquire)
+        } {
+            fail()
         }
     }
 
@@ -92,10 +100,19 @@ mod critical {
         #[track_caller]
         pub fn lock(&self) -> CriticalSpinLockGuard<'_, T> {
             let ie = riscv::register::sstatus::read().sie();
-            unsafe {
+
+            let before = || unsafe {
                 riscv::register::sstatus::clear_sie();
-            }
-            self.lock.lock();
+            };
+            let fail = || {
+                if ie {
+                    unsafe {
+                        riscv::register::sstatus::set_sie();
+                    }
+                }
+            };
+            self.lock.lock_with(before, fail);
+
             CriticalSpinLockGuard { lock: self, ie }
         }
     }
