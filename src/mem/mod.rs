@@ -71,6 +71,7 @@ pub struct KernelLayout {
     pub text: Range,
     pub ro_data: Range,
     pub data: Range,
+
     pub bss: Range,
     pub stack: Range,
 

@@ -8,7 +8,7 @@ build-std-features = ["compiler-builtins-mem"]
 
 [target.riscv64gc-unknown-none-elf]
 rustflags = [
-    # "-C", "link-arg=--emit-relocs",
+    "-C", "link-arg=--emit-relocs",
     "-C", "link-arg=-Tlink.map",
     "-C", "link-arg=-pie",
     "-C", "code-model=medium",
@@ -19,6 +19,8 @@ rustflags = [
 runner = """
 qemu-system-riscv64
   -machine virt
+  -smp 4
+  -m 512M
   
   -chardev stdio,id=uart0 
   -serial chardev:uart0 

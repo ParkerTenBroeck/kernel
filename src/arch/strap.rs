@@ -4,7 +4,7 @@ use core::{
     ptr::{NonNull, addr_of_mut},
 };
 
-use riscv::register::{scause, stvec::Stvec};
+use riscv::register::{scause, sscratch, stvec::Stvec};
 
 use crate::{
     println,
@@ -45,6 +45,8 @@ global_asm!(
         
        
         csrrw x31, sscratch, x31  // swap x31 and sscratch, x31 -> TrapCtx
+        beqz x31, .Lend
+
         sd sp, 0(x31)            // TrapCtx->scratch = sp
 
         csrr sp, sstatus
@@ -90,10 +92,12 @@ global_asm!(
         sd x26, 26 * 8( sp )
         sd x27, 27 * 8( sp ) // at this point we've saved all "save" registers
 
-        ld x1, 0(x31) // load stack ptr from ctx scratch
-        sd x1, 2 * 8( sp ) // save previous stack ptr
 
-        move s0, x31             // save TrapCtx
+        beqz x31, 0f
+            ld x1, 0(x31) // load stack ptr from ctx scratch
+            sd x1, 2 * 8( sp ) // save previous stack ptr
+        0:
+
         csrrw x31, sscratch, x31 // restore sscratch
 
         sd x28, 28 * 8( sp )  
@@ -108,6 +112,7 @@ global_asm!(
         csrr a1, scause
         csrr a2, sepc
         csrr a3, stval
+        csrr a4, sscratch
 
         // save PC
         sd a2, 0( sp )
@@ -167,6 +172,7 @@ pub extern "C" fn strap_handler(
     scause: scause::Scause,
     sepc: usize,
     stval: usize,
+    sscratch: Option<NonNull<TrapCtx>>
 ) {
     if scause.is_exception() {
         println!("{frame:x?}");
@@ -188,7 +194,7 @@ pub extern "C" fn strap_handler(
             1 => "Instruction access fault",
             2 => "Illegal instruction",
             3 => {
-                println!("Breakpoint");
+                println!("Breakpoint {sscratch:?}");
                 return;
             }
             4 => "Load address misaligned",
@@ -247,7 +253,25 @@ pub extern "C" fn strap_handler(
     }
 }
 
+/// # Safety
+///
+/// .
+pub unsafe fn init(){
+    unsafe extern "C" {
+        #[link_name = "strap_vector"]
+        pub fn strap_vector();
+    }
+    unsafe {
+        riscv::register::sscratch::write(0);
+        riscv::register::stvec::write(Stvec::new(
+            strap_vector as *const () as usize,
+            riscv::register::stvec::TrapMode::Direct,
+        ));
+    }
+}
+
 static mut CORE_TRAP_CTX: MaybeUninit<TrapCtx> = MaybeUninit::zeroed();
+
 static mut INIT_TASK: MaybeUninit<Task> = MaybeUninit::zeroed();
 
 type InitTask = unsafe extern "C" fn(hart_id: usize, dtb_ptr: *const u8) -> !;
@@ -255,18 +279,7 @@ type InitTask = unsafe extern "C" fn(hart_id: usize, dtb_ptr: *const u8) -> !;
 /// # Safety
 ///
 /// .
-pub unsafe fn init(init: InitTask, hart_id: usize, dtb_ptr: *const u8) -> ! {
-    unsafe extern "C" {
-        #[link_name = "strap_vector"]
-        pub fn strap_vector();
-    }
-    unsafe {
-        riscv::register::stvec::write(Stvec::new(
-            strap_vector as *const () as usize,
-            riscv::register::stvec::TrapMode::Direct,
-        ));
-    }
-
+pub unsafe fn begin_init_task(init: InitTask, hart_id: usize, dtb_ptr: *const u8) -> ! {
     #[allow(static_mut_refs)]
     unsafe {
         let task = NonNull::new_unchecked(INIT_TASK.as_mut_ptr());

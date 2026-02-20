@@ -14,9 +14,12 @@ struct ElfRela {
 const R_RISCV_RELATIVE: ElfAddr = 3;
 
 /// # Safety
-/// uhhh
+/// 
+/// This will invalidate pointers in static memory which have relocations on them.
+/// 
+/// All regions of kernel memory, even rodata must be writable at its current location.
 #[allow(unsafe_op_in_unsafe_fn)]
-pub unsafe fn relocate_kernel(to: usize) {
+pub unsafe fn relocate_kernel(target_addr: usize) {
     let current_addr: usize;
     let link_addr: usize;
     let rela_start: *const ElfRela;
@@ -28,7 +31,7 @@ pub unsafe fn relocate_kernel(to: usize) {
         .option norelax
         
         lla {0}, _kernel_start
-        lga {1}, KERNEL_VMA
+        lga {1}, KERNEL_LINK_ADDR
 
         lla {2}, __rela_dyn_start
         lla {3}, __rela_dyn_end
@@ -48,22 +51,21 @@ pub unsafe fn relocate_kernel(to: usize) {
         (rela_end as usize - rela_start as usize) / core::mem::size_of::<ElfRela>(),
     );
 
-    let reloc_offset: isize = (to as isize) - (link_addr as isize);
-
-    let va_kernel_link_pa_offset = link_addr.wrapping_sub(current_addr);
+    let target_to_link_offset = target_addr.wrapping_sub(link_addr);
+    let link_to_curr_offset = link_addr.wrapping_sub(current_addr);
 
     for r in rela {
         if r.r_info != R_RISCV_RELATIVE {
             continue;
         }
 
-        let addr = (r.r_offset as usize).wrapping_sub(va_kernel_link_pa_offset) as *mut ElfAddr;
+        let addr = (r.r_offset as usize).wrapping_sub(link_to_curr_offset) as *mut ElfAddr;
 
         let mut relocated_addr: usize = r.r_addend as usize;
 
         // Don’t relocate VDSO-like symbols linked from 0; only slide kernel-linked addresses.
         if relocated_addr >= link_addr {
-            relocated_addr = (relocated_addr as isize + reloc_offset) as usize;
+            relocated_addr = relocated_addr.wrapping_add(target_to_link_offset);
         }
 
         addr.write_volatile(relocated_addr as ElfAddr);
@@ -75,10 +77,7 @@ pub unsafe fn relocate_kernel(to: usize) {
         "
         .option push
         .option norelax
-
         lla      gp, __global_pointer$
-        lga      gp, __global_pointer$
-
         .option pop
         "
     );

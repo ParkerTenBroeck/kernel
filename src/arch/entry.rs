@@ -9,7 +9,7 @@ use crate::{
     dev::uart,
     dtb::Dtb,
     kernel_entry,
-    mem::{KernelLayout, Pointer},
+    mem::{KernelLayout},
     println,
     std::stdio,
 };
@@ -18,8 +18,9 @@ use crate::{
 unsafe extern "C" fn m_mode_setup(_: usize, _: *const u8, _vma: usize, pma: usize) {
     uart::early_pre_vm();
     crate::stdio::set_sout(early_print);
-
     relocate_kernel(pma);
+
+    riscv::register::mtvec::write(riscv::register::mtvec::Mtvec::from_bits(early_panic as *mut() as usize));
 
     println!("Entered M-Mode");
 
@@ -84,7 +85,6 @@ unsafe extern "C" fn m_mode_setup(_: usize, _: *const u8, _vma: usize, pma: usiz
     ));
 
     println!("Configured M-Mode");
-    println!("Configured M-Mode");
 
     asm!(
         "
@@ -92,8 +92,7 @@ unsafe extern "C" fn m_mode_setup(_: usize, _: *const u8, _vma: usize, pma: usiz
         csrw mepc, t0
         mret
         0:
-    "
-    )
+    ")
 }
 
 static FIRST: AtomicBool = AtomicBool::new(true);
@@ -142,8 +141,9 @@ unsafe extern "C" fn setup_vm_trampoline(
     crate::stdio::set_sout(early_print);
     relocate_kernel(pma);
 
-    assert!(pma & ((1 << (12 + 9)) - 1) == 0, "pma not properly aligned");
-    assert!(vma & ((1 << (12 + 9)) - 1) == 0, "vma not properly aligned");
+
+    assert!(pma.is_multiple_of(1 << (12 + 9)), "pma not properly aligned {pma:#x?}");
+    assert!(vma.is_multiple_of(1 << (12 + 9)), "vma not properly aligned {vma:#x?}");
 
     println!("Physical kernel layout: {:#x?}", KernelLayout::new());
 
@@ -195,7 +195,6 @@ unsafe extern "C" fn setup_vm_trampoline(
 
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe extern "C" fn setup_vm(_: usize, dtb_ptr: *const u8, vma: usize, pma: usize) {
-    let dtb_ptr = Pointer::from_phys(dtb_ptr.cast_mut()).virt().cast_const();
 
     crate::stdio::set_sout(early_print);
     relocate_kernel(vma);
@@ -203,6 +202,8 @@ unsafe extern "C" fn setup_vm(_: usize, dtb_ptr: *const u8, vma: usize, pma: usi
     println!("Discovering memory");
 
     let dtb = unsafe { Dtb::from_ptr(dtb_ptr).unwrap() };
+
+    println!("{dtb}");
 
     crate::mem::pages::discover(&dtb, vma, pma);
 
@@ -214,13 +215,24 @@ unsafe extern "C" fn setup_vm(_: usize, dtb_ptr: *const u8, vma: usize, pma: usi
 
     let kernel_layout = KernelLayout::new();
 
-    let supplier = || unsafe { crate::mem::pages::page_zeroed().cast() };
+    let supplier = || unsafe { crate::mem::pages::pages_zeroed(1).cast() };
 
     let mut kernel_map = PageTableRoot::new(supplier);
 
+    // virt <-> phys
+    kernel_map
+        .map_phys_region(
+            crate::mem::PHYS_ADDR_OFFSET,
+            0x0,
+            1024 * 1024 * 1024 * 128,
+            PageTableEntry::COM_DEV | PageTableEntry::DIRTY_ACCESSED,
+            supplier,
+        )
+        .unwrap();
+
     // text section
     kernel_map
-        .map_region(
+        .map_phys_region(
             kernel_layout.text.start,
             kernel_layout.text.start.wrapping_add(phys_offset),
             kernel_layout.text.end - kernel_layout.text.start,
@@ -231,7 +243,7 @@ unsafe extern "C" fn setup_vm(_: usize, dtb_ptr: *const u8, vma: usize, pma: usi
 
     // ro section
     kernel_map
-        .map_region(
+        .map_phys_region(
             kernel_layout.ro_data.start,
             kernel_layout.ro_data.start.wrapping_add(phys_offset),
             kernel_layout.ro_data.end - kernel_layout.ro_data.start,
@@ -242,7 +254,7 @@ unsafe extern "C" fn setup_vm(_: usize, dtb_ptr: *const u8, vma: usize, pma: usi
 
     // data section
     kernel_map
-        .map_region(
+        .map_phys_region(
             kernel_layout.data.start,
             kernel_layout.data.start.wrapping_add(phys_offset),
             kernel_layout.data.end - kernel_layout.data.start,
@@ -253,7 +265,7 @@ unsafe extern "C" fn setup_vm(_: usize, dtb_ptr: *const u8, vma: usize, pma: usi
 
     // bss section
     kernel_map
-        .map_region(
+        .map_phys_region(
             kernel_layout.bss.start,
             kernel_layout.bss.start.wrapping_add(phys_offset),
             kernel_layout.bss.end - kernel_layout.bss.start,
@@ -264,22 +276,11 @@ unsafe extern "C" fn setup_vm(_: usize, dtb_ptr: *const u8, vma: usize, pma: usi
 
     // stacks
     kernel_map
-        .map_region(
+        .map_phys_region(
             kernel_layout.stack.start,
             kernel_layout.stack.start.wrapping_add(phys_offset),
             kernel_layout.stack.end - kernel_layout.stack.start,
             PageTableEntry::COM_RW | PageTableEntry::DIRTY_ACCESSED,
-            supplier,
-        )
-        .unwrap();
-
-    // virt <-> phys
-    kernel_map
-        .map_region(
-            crate::mem::PHYS_ADDR_OFFSET,
-            0x0,
-            1024 * 1024 * 1024 * 128,
-            PageTableEntry::COM_DEV | PageTableEntry::DIRTY_ACCESSED,
             supplier,
         )
         .unwrap();
@@ -293,6 +294,10 @@ unsafe extern "C" fn setup_vm(_: usize, dtb_ptr: *const u8, vma: usize, pma: usi
         kernel_map.root().phys() as usize >> 12,
     );
     asm!("sfence.vma");
+
+    {
+
+    }
 
     uart::early_post_vm();
 
@@ -339,25 +344,39 @@ _start:
     .Lclear_bss_done:
 
     
-    lga a2, KERNEL_VMA
+    lga a2, KERNEL_LINK_ADDR
     lla a3, _kernel_start
     // fixup offset
     sub s0, a2, a3
 
-    lla t0, {panic}
-    csrw stvec, t0
-    // csrw mtvec, t0
-
     lla sp, _stack_top
+
     move s1, a0
     move s2, a1
     move s3, a2
     move s4, a3
-    // call {m_mode_setup}    
-    move a0, s1
-    move a1, s2
-    move a2, s3
-    move a3, s4
+
+    // enables supervisor software interrupts
+    li t0, 2
+    csrs sie, t0
+    csrs sstatus, t0
+
+    // lla t0, .LmModeDone
+    // csrw stvec, t0
+        
+    //     lla t0, {panic}
+    //     csrw mtvec, t0
+        
+    //     call {m_mode_setup}
+    //     move a0, s1
+    //     move a1, s2
+    //     move a2, s3
+    //     move a3, s4   
+    // .LmModeDone:
+
+    lla t0, {panic}
+    csrw stvec, t0
+
     call {setup_vm_trampoline}    
     
     // enable virtual memory
@@ -382,6 +401,9 @@ _start:
     lla sp, _stack_top
     lla      gp, __global_pointer$
 
+    // fix device tree pointer
+    li t0, {phys_to_virt_offset}
+    add s2, s2, t0
 
     move a0, s1
     move a1, s2
@@ -389,9 +411,6 @@ _start:
     move a3, s4
     call {setup_vm}
     sfence.vma
-
-    li t0, {phys_to_virt_offset}
-    add s2, s2, t0
 
     move a0, s1
     move a1, s2

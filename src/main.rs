@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(alloc_layout_extra)]
 
 pub mod alloc;
 pub mod arch;
@@ -18,21 +17,36 @@ pub mod timer;
 pub mod util;
 
 use dev::*;
+use riscv::register::mtvec::Mtvec;
 
 use crate::{dtb::Dtb, std::stdio};
 
+
 /// # Safety
 /// dtb_ptr must point to a valid dtb tree
+#[allow(static_mut_refs)]
 pub unsafe extern "C" fn kernel_entry(
     hart_id: usize,
     dtb_ptr: *const u8,
     vma: usize,
     lma: usize,
 ) -> ! {
+
+    // println!("{:?}", MEOW);
+    // println!("{:?}", MEOW2);
+    // println!("{:?}", MEOW3);
+    // println!("{:?}", MEOW4);
+
     println!("Kernel entry, hart: {hart_id}, dtb: {dtb_ptr:?}, vma: {vma:#x?}, lma: {lma:#x?}");
 
+    unsafe{
+        crate::arch::strap::init();
+    }
+
+    riscv::register::mtvec::write(Mtvec::from_bits(0));
+
     unsafe {
-        crate::arch::strap::init(init_task, hart_id, dtb_ptr);
+        crate::arch::strap::begin_init_task(init_task, hart_id, dtb_ptr);
     }
 }
 
@@ -50,23 +64,23 @@ pub unsafe extern "C" fn init_task(_hart_id: usize, dtb_ptr: *const u8) -> ! {
 
     // timer::clint::init(&dtb);
 
-    // dev::test_pci::test_pci();
+    dev::test_pci::test_pci();
 
-    // vga::init(1920, 1080);
-    // display::update_buffer(vga::framebuffer());
+    vga::init(1920, 1080);
+    display::update_buffer(vga::framebuffer());
 
-    // stdio::set_sout(|str| {
-    //     uart::uart().write_str(str);
-    //     display::print(str.as_bytes());
-    // });
+    stdio::set_sout(|str| {
+        uart::uart().write_str(str);
+        display::print(str.as_bytes());
+    });
 
-    // for c in '\x20'..='\x7E' {
-    //     use core::fmt::Write;
-    //     _ = stdio::sout().write_char(c)
-    // }
-    // println!();
+    for c in '\x20'..='\x7E' {
+        use core::fmt::Write;
+        _ = stdio::sout().write_char(c)
+    }
+    println!();
 
-    // syscon::init(&dtb);
+    syscon::init(&dtb);
 
     arch::halt()
 }

@@ -66,7 +66,7 @@ unsafe impl GlobalAlloc for Kalloc {
 /// # Safety
 /// .
 pub unsafe fn init() {
-    SLAB.lock().add_cache(Layout::new::<usize>());
+    SLAB.lock().add_cache(Layout::new::<[usize; 1]>());
     SLAB.lock().add_cache(Layout::new::<[usize; 2]>());
     SLAB.lock().add_cache(Layout::new::<[usize; 3]>());
     SLAB.lock().add_cache(Layout::new::<[usize; 4]>());

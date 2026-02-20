@@ -535,7 +535,7 @@ impl PageTableRoot {
         self.root
     }
 
-    pub fn map_region(
+    pub fn map_phys_region(
         &mut self,
         mut virt: usize,
         mut phys: usize,
@@ -549,7 +549,7 @@ impl PageTableRoot {
                 && phys.is_multiple_of(1 << (12 + 18))
                 && size >= 1 << (12 + 18)
             {
-                self.map_huge_huge_page(virt, phys, entry, &supplier)?;
+                self.map_phys_huge_huge_page(virt, phys, entry, &supplier)?;
                 size -= 1 << (12 + 18);
                 virt += 1 << (12 + 18);
                 phys += 1 << (12 + 18);
@@ -557,12 +557,12 @@ impl PageTableRoot {
                 && phys.is_multiple_of(1 << (12 + 9))
                 && size >= 1 << (12 + 9)
             {
-                self.map_huge_page(virt, phys, entry, &supplier)?;
+                self.map_phys_huge_page(virt, phys, entry, &supplier)?;
                 size -= 1 << (12 + 9);
                 virt += 1 << (12 + 9);
                 phys += 1 << (12 + 9);
             } else {
-                self.map_page(virt, phys, entry, &supplier)?;
+                self.map_phys_page(virt, phys, entry, &supplier)?;
                 size -= 1 << 12;
                 virt += 1 << 12;
                 phys += 1 << 12;
@@ -571,7 +571,7 @@ impl PageTableRoot {
         Ok(())
     }
 
-    pub fn map_huge_huge_page(
+    pub fn map_phys_huge_huge_page(
         &mut self,
         virt: usize,
         phys: usize,
@@ -589,7 +589,7 @@ impl PageTableRoot {
         Ok(())
     }
 
-    pub fn map_huge_page(
+    pub fn map_phys_huge_page(
         &mut self,
         virt: usize,
         phys: usize,
@@ -621,7 +621,7 @@ impl PageTableRoot {
         Ok(())
     }
 
-    pub fn map_page(
+    pub fn map_phys_page(
         &mut self,
         virt: usize,
         phys: usize,
@@ -631,8 +631,6 @@ impl PageTableRoot {
         let ppn2 = (virt >> (9 + 9 + 12)) & ((1 << 9) - 1);
         let ppn1 = (virt >> (9 + 12)) & ((1 << 9) - 1);
         let ppn0 = (virt >> (12)) & ((1 << 9) - 1);
-
-        crate::println!("mapping: {virt:#x?}, {phys:#x?}");
 
         let mut curr = unsafe { &mut *self.root.virt() };
 
@@ -655,6 +653,119 @@ impl PageTableRoot {
         }
 
         curr.entries[ppn0] = entry.set_ppn(phys as u64 >> 12);
+        Ok(())
+    }
+
+    pub fn map_region(
+        &mut self,
+        mut virt: usize,
+        size: usize,
+        entry: PageTableEntry,
+        supplier: impl Fn() -> crate::mem::Pointer<PageTable>,
+    ) -> Result<(), ()> {
+        let mut size = size.next_multiple_of(1 << 12);
+        while size > 0 {
+            if virt.is_multiple_of(1 << (12 + 18))
+                && size >= 1 << (12 + 18)
+            {
+                self.map_huge_huge_page(virt, entry, &supplier)?;
+                size -= 1 << (12 + 18);
+                virt += 1 << (12 + 18);
+            } else if virt.is_multiple_of(1 << (12 + 9))
+                && size >= 1 << (12 + 9)
+            {
+                self.map_huge_page(virt, entry, &supplier)?;
+                size -= 1 << (12 + 9);
+                virt += 1 << (12 + 9);
+            } else {
+                self.map_page(virt, entry, &supplier)?;
+                size -= 1 << 12;
+                virt += 1 << 12;
+            }
+        }
+        Ok(())
+    }
+
+
+        pub fn map_huge_huge_page(
+        &mut self,
+        virt: usize,
+        entry: PageTableEntry,
+        supplier: impl Fn() -> crate::mem::Pointer<PageTable>,
+    ) -> Result<(), ()> {
+        let ppn2 = (virt >> (9 + 9 + 12)) & ((1 << 9) - 1);
+
+        let curr = unsafe { &mut *self.root.virt() };
+        if curr.entries[ppn2].valid() {
+            return Err(());
+        }
+
+        // curr.entries[ppn2] = entry.set_ppn(phys as u64 >> 12);
+        Ok(())
+    }
+
+    pub fn map_huge_page(
+        &mut self,
+        virt: usize,
+        entry: PageTableEntry,
+        supplier: impl Fn() -> crate::mem::Pointer<PageTable>,
+    ) -> Result<(), ()> {
+        let ppn2 = (virt >> (9 + 9 + 12)) & ((1 << 9) - 1);
+        let ppn1 = (virt >> (9 + 12)) & ((1 << 9) - 1);
+
+        let mut curr = unsafe { &mut *self.root.virt() };
+
+        if curr.entries[ppn2].valid() && curr.entries[ppn2].is_leaf() {
+            return Err(());
+        }
+
+        if !curr.entries[ppn2].valid() {
+            curr.entries[ppn2] = PageTableEntry::new()
+                .set_valid(true)
+                .set_ppn(supplier().phys() as u64 >> 12);
+        }
+        let page = Pointer::from_phys((curr.entries[ppn2].ppn() << 12) as *mut PageTable);
+        curr = unsafe { &mut *(page.virt()) };
+
+        if curr.entries[ppn1].valid() {
+            return Err(());
+        }
+
+        // curr.entries[ppn1] = entry.set_ppn(phys as u64 >> 12);
+        Ok(())
+    }
+
+    pub fn map_page(
+        &mut self,
+        virt: usize,
+        entry: PageTableEntry,
+        supplier: impl Fn() -> crate::mem::Pointer<PageTable>,
+    ) -> Result<(), ()> {
+        let ppn2 = (virt >> (9 + 9 + 12)) & ((1 << 9) - 1);
+        let ppn1 = (virt >> (9 + 12)) & ((1 << 9) - 1);
+        let ppn0 = (virt >> (12)) & ((1 << 9) - 1);
+
+        let mut curr = unsafe { &mut *self.root.virt() };
+
+        for ppn in [ppn2, ppn1] {
+            if curr.entries[ppn].valid() && curr.entries[ppn].is_leaf() {
+                return Err(());
+            }
+            if !curr.entries[ppn].valid() {
+                curr.entries[ppn] = PageTableEntry::new()
+                    .set_valid(true)
+                    .set_ppn(supplier().phys() as u64 >> 12);
+            }
+
+            let page = Pointer::from_phys((curr.entries[ppn].ppn() << 12) as *mut PageTable);
+            curr = unsafe { &mut *(page.virt()) };
+        }
+
+        if curr.entries[ppn0].valid() {
+            return Err(());
+        }
+
+        // curr.entries[ppn0] = entry.set_ppn(phys as u64 >> 12);
         Ok(())
     }
 }

@@ -1,18 +1,22 @@
 OUTPUT_ARCH(riscv)
 ENTRY(_start)
 
-KERNEL_LMA  = 0x81000000;    
-KERNEL_VMA  = 0x0 - 2M * 1024;  
-KERNEL_OFFSET = KERNEL_VMA - KERNEL_LMA;
+KERNEL_LOAD_ADDR = 0x81000000;
+
+# 2G of space
+KERNEL_LINK_ADDR = 0x0 - 2 * 1024 * 1024 * 1024;
+
+OFFSET = KERNEL_LINK_ADDR - KERNEL_LOAD_ADDR; 
+
 PAGE_SIZE   = 4K;
 
 SECTIONS
-{
-  . = KERNEL_VMA;
+{ 
+  . = KERNEL_LINK_ADDR;
   
   _kernel_start = .;
 
-  .text : AT(ADDR(.text) - KERNEL_OFFSET) ALIGN(PAGE_SIZE) {
+  .text : AT(ADDR(.text) - OFFSET) ALIGN(PAGE_SIZE) {
     _text_start = .;
     KEEP(*(.text.entry))
     *(.text .text.*)
@@ -20,23 +24,23 @@ SECTIONS
   }
 
 
-  .rodata : AT(ADDR(.rodata) - KERNEL_OFFSET) ALIGN(PAGE_SIZE) {
+  .rodata : AT(ADDR(.rodata) - OFFSET) ALIGN(PAGE_SIZE) {
     _rodata_start = .;
     *(.rodata .rodata.*)
     *(.srodata .srodata.*)
   }
 
-  .rela.dyn : AT(ADDR(.rela.dyn) - KERNEL_OFFSET) ALIGN(8) {
+  .rela.dyn : AT(ADDR(.rela.dyn) - OFFSET) ALIGN(8) {
     __rela_dyn_start = .;
     KEEP(*(.rela.dyn))
-    KEEP(*(.rela.*))
+    #KEEP(*(.rela.*))
     __rela_dyn_end = .;
   }
   
   # we include rela in ro data
   _rodata_end = .;
 
-  .data : AT(ADDR(.data) - KERNEL_OFFSET) ALIGN(PAGE_SIZE) {
+  .data : AT(ADDR(.data) - OFFSET) ALIGN(PAGE_SIZE) {
     _data_start = .;
     *(.data .data.*)
     *(.sdata .sdata.*)
@@ -45,14 +49,14 @@ SECTIONS
     _data_end = .;
   }
 
-  .bss : AT(ADDR(.bss) - KERNEL_OFFSET) ALIGN(PAGE_SIZE) {
+  .bss (NOLOAD) : AT(ADDR(.bss) - OFFSET) ALIGN(PAGE_SIZE) {
     _bss_start = .;
     *(.bss .bss.*)
     *(COMMON)
     _bss_end = .;
   }
 
-  .stack (NOLOAD) : AT(ADDR(.stack) - KERNEL_OFFSET) ALIGN(PAGE_SIZE){
+  .stack (NOLOAD) : AT(ADDR(.stack) - OFFSET) ALIGN(PAGE_SIZE){
       _stack_start = .;
       . += 4K*16;
       _stack_top = .;

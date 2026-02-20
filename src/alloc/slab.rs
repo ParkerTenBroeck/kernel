@@ -146,7 +146,7 @@ impl Pages {
         }
         if let Some(last) = last{
             unsafe{
-                last.write(ListNode { next: None });
+                last.write(ListNode { next: cache.free_list });
             }
         }
         cache.free_list = NonNull::new(slab.virt().cast());
@@ -177,6 +177,8 @@ impl SlabAllocator {
 
     pub fn add_cache(&mut self, layout: Layout) {
         let layout = SlabAllocator::round_layout(layout);
+        assert!(layout.size() <= core::mem::size_of::<Page>());
+        assert!(layout.align() <= core::mem::align_of::<Page>());
         self.caches.add_cache(layout);
     }
 
