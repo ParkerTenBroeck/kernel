@@ -17,7 +17,6 @@ pub mod timer;
 pub mod util;
 
 use dev::*;
-use riscv::register::mtvec::Mtvec;
 
 use crate::{dtb::Dtb, std::stdio};
 
@@ -32,18 +31,11 @@ pub unsafe extern "C" fn kernel_entry(
     lma: usize,
 ) -> ! {
 
-    // println!("{:?}", MEOW);
-    // println!("{:?}", MEOW2);
-    // println!("{:?}", MEOW3);
-    // println!("{:?}", MEOW4);
-
     println!("Kernel entry, hart: {hart_id}, dtb: {dtb_ptr:?}, vma: {vma:#x?}, lma: {lma:#x?}");
 
     unsafe{
         crate::arch::strap::init();
     }
-
-    riscv::register::mtvec::write(Mtvec::from_bits(0));
 
     unsafe {
         crate::arch::strap::begin_init_task(init_task, hart_id, dtb_ptr);

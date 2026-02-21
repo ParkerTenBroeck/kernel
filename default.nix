@@ -25,6 +25,7 @@ pkgs.callPackage (
       pkgs.qemu
       pkgs.xxd
       riscv-cross.stdenv.cc
+      pkgs.lldb 
     ];
     # libraries here
     buildInputs =
