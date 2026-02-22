@@ -1,36 +1,25 @@
-use core::{
-    arch::global_asm,
-    mem::MaybeUninit,
-    ptr::{NonNull, addr_of_mut},
-};
+use core::arch::{asm, global_asm};
 
-use riscv::register::{scause, sscratch, stvec::Stvec};
+use riscv::register::{scause, stvec::Stvec};
 
-use crate::{
-    println,
-};
+use crate::{println};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct Task {
-    pub next: NonNull<Task>,
-    pub stack: *mut u8,
-    pub frame: TrapFrame,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct TrapCtx {
-    pub scratch: usize,
-    pub task: NonNull<Task>,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct TrapFrame {
+pub struct ThreadInfo {
     pub pc: usize,
     pub regs: [usize; 31],
     pub sstatus: riscv::register::sstatus::Sstatus,
+}
+
+impl Default for ThreadInfo{
+    fn default() -> Self {
+        Self { 
+            pc: Default::default(), 
+            regs: Default::default(), 
+            sstatus: riscv::register::sstatus::Sstatus::from_bits(0)
+        }
+    }
 }
 
 global_asm!(
@@ -44,28 +33,22 @@ global_asm!(
     strap_vector:
         
        
-        csrrw x31, sscratch, x31  // swap x31 and sscratch, x31 -> TrapCtx
-        beqz x31, .Lend
+        csrrw tp, sscratch, tp  // swap tp and sscratch
+        beqz tp, .Lkernel
 
-        sd sp, 0(x31)            // TrapCtx->scratch = sp
+        j .Lend
+        .Lkernel:
+                csrrw tp, sscratch, tp  // restore tp and sscratch
 
-        csrr sp, sstatus
-        andi sp, sp, (1 << 8)   # isolate SPP bit (bit 8)
-
-        bnez sp, .Lsupervisor
-            // we are comming from user mode (untrusted stack)
-            ld sp, 8(x31)            // sp = TrapCtx->task
-            ld sp, 8(x31)            // sp = Task->kernel_stack
-            j .Lend
-        .Lsupervisor:
-            ld sp, 0(x31)            // sp = TrapCtx->scratch
+                addi sp, sp, -{frame_size}
+                
+                sd x2, 2 * 8( sp )
         .Lend:
 
-        addi sp, sp, -{frame_size}
 
         // general registers
         sd x1, 1 * 8( sp )
-        // sp
+        
         sd x3, 3 * 8( sp )
         sd x4, 4 * 8( sp )
         sd x5, 5 * 8( sp )
@@ -90,16 +73,7 @@ global_asm!(
         sd x24, 24 * 8( sp )
         sd x25, 25 * 8( sp )
         sd x26, 26 * 8( sp )
-        sd x27, 27 * 8( sp ) // at this point we've saved all "save" registers
-
-
-        beqz x31, 0f
-            ld x1, 0(x31) // load stack ptr from ctx scratch
-            sd x1, 2 * 8( sp ) // save previous stack ptr
-        0:
-
-        csrrw x31, sscratch, x31 // restore sscratch
-
+        sd x27, 27 * 8( sp )
         sd x28, 28 * 8( sp )  
         sd x29, 29 * 8( sp )
         sd x30, 30 * 8( sp )
@@ -159,20 +133,21 @@ global_asm!(
         ld x30, 30 * 8( sp )
         ld x31, 31 * 8( sp )
         
-        ld x2, 2 * 8( sp ) // restore previous stack
+        ld x2, 2 * 8( sp )
         
+        addi sp, sp, {frame_size}
+
         sret
     "#,
     handler = sym strap_handler,
-    frame_size = const core::mem::size_of::<TrapFrame>(),
+    frame_size = const core::mem::size_of::<ThreadInfo>(),
 );
 
 pub extern "C" fn strap_handler(
-    frame: &mut TrapFrame,
+    frame: &mut ThreadInfo,
     scause: scause::Scause,
     sepc: usize,
     stval: usize,
-    sscratch: Option<NonNull<TrapCtx>>
 ) {
     if scause.is_exception() {
         println!("{frame:x?}");
@@ -194,7 +169,7 @@ pub extern "C" fn strap_handler(
             1 => "Instruction access fault",
             2 => "Illegal instruction",
             3 => {
-                println!("Breakpoint {sscratch:?}");
+                println!("Breakpoint");
                 return;
             }
             4 => "Load address misaligned",
@@ -204,13 +179,10 @@ pub extern "C" fn strap_handler(
             8 => "Env call from U-mode",
             9 => "Env call from S-mode",
             11 => {
-                // csr::
                 println!(
                     "\nEnv call from M-mode hardid: \"{}\"... returning",
                     riscv::register::marchid::read().bits()
                 );
-                // println!("{:#?}", frame);
-                // timer::mdelay(6000);
                 return;
             }
             12 | 13 | 15 => {
@@ -253,6 +225,13 @@ pub extern "C" fn strap_handler(
     }
 }
 
+#[derive(Default)]
+struct Task{
+    pub kernel_sp: *mut u8,
+    pub user_sp: *mut u8,
+    pub thread: ThreadInfo,
+}
+
 /// # Safety
 ///
 /// .
@@ -267,12 +246,13 @@ pub unsafe fn init(){
             strap_vector as *const () as usize,
             riscv::register::stvec::TrapMode::Direct,
         ));
+        use crate::alloc::boxed::Box;
+        let ptr = Box::leak(Box::new(Task::default()));
+        asm!("move tp, {0}", in(reg) ptr);
+        riscv::asm::ebreak();
+        riscv::asm::ebreak();
     }
 }
-
-static mut CORE_TRAP_CTX: MaybeUninit<TrapCtx> = MaybeUninit::zeroed();
-
-static mut INIT_TASK: MaybeUninit<Task> = MaybeUninit::zeroed();
 
 type InitTask = unsafe extern "C" fn(hart_id: usize, dtb_ptr: *const u8) -> !;
 
@@ -280,15 +260,6 @@ type InitTask = unsafe extern "C" fn(hart_id: usize, dtb_ptr: *const u8) -> !;
 ///
 /// .
 pub unsafe fn begin_init_task(init: InitTask, hart_id: usize, dtb_ptr: *const u8) -> ! {
-    #[allow(static_mut_refs)]
-    unsafe {
-        let task = NonNull::new_unchecked(INIT_TASK.as_mut_ptr());
-        *addr_of_mut!((*task.as_ptr()).next) = task;
-        *addr_of_mut!((*CORE_TRAP_CTX.as_mut_ptr()).task) = task;
-        riscv::register::sscratch::write(CORE_TRAP_CTX.as_ptr() as usize);
-
-        println!("{:?}", CORE_TRAP_CTX.as_ptr());
-    }
 
     let sp = crate::mem::KernelLayout::new().stack.end;
 
@@ -296,7 +267,7 @@ pub unsafe fn begin_init_task(init: InitTask, hart_id: usize, dtb_ptr: *const u8
     sstatus.set_spie(true);
     sstatus.set_spp(riscv::register::sstatus::SPP::Supervisor);
 
-    let mut frame = TrapFrame {
+    let mut frame = ThreadInfo {
         pc: init as usize,
         regs: [0; 31],
         sstatus,
