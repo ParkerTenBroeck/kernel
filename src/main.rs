@@ -15,6 +15,7 @@ pub mod sync;
 pub mod task;
 pub mod timer;
 pub mod util;
+pub mod syscall;
 
 use dev::*;
 
@@ -34,7 +35,7 @@ pub unsafe extern "C" fn kernel_entry(
     println!("Kernel entry, hart: {hart_id}, dtb: {dtb_ptr:?}, vma: {vma:#x?}, lma: {lma:#x?}");
 
     unsafe{
-        crate::arch::strap::init();
+        crate::arch::strap::init(hart_id);
     }
 
     unsafe {
@@ -49,7 +50,7 @@ pub unsafe extern "C" fn init_task(_hart_id: usize, dtb_ptr: *const u8) -> ! {
 
     let dtb = unsafe { Dtb::from_ptr(dtb_ptr).unwrap() };
     println!("{dtb}");
-
+    
     pci::init(&dtb);
 
     uart::init(&dtb);

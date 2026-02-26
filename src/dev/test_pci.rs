@@ -2,6 +2,7 @@ use core::ffi::CStr;
 
 use crate::{dev::pci, println};
 
+#[inline(never)]
 pub fn test_pci() {
     let Some((device, _)) = pci::pci().find_device_vendor(0x1b36, 0x05) else {
         println!("test pci device not found");
@@ -56,5 +57,30 @@ pub fn test_pci() {
                 break;
             }
         }
+    }
+
+    func1();
+}
+
+
+#[inline(never)]
+fn func1(){
+    func2();
+}
+
+#[inline(never)]
+fn func2(){
+    func3();
+}
+
+#[inline(never)]
+fn func3(){
+    unsafe{
+        let mut trace = crate::arch::trace::StackTrace::start();
+        while let Some(frame) = trace{
+            println!("frame: {:#x?}, {:#x?}", frame.fp, *frame.pc_ptr);
+            trace = frame.next();
+        }
+        crate::arch::halt()
     }
 }

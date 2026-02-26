@@ -2,25 +2,17 @@ use core::arch::{asm, global_asm};
 
 use riscv::register::{scause, stvec::Stvec};
 
-use crate::{println};
+use crate::{arch::Frame, println};
+
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct ThreadInfo {
-    pub pc: usize,
-    pub regs: [usize; 31],
-    pub sstatus: riscv::register::sstatus::Sstatus,
+pub struct PerCpu{
+    pub scratch: usize,
+    pub kernel_sp: *mut u8,
+    pub hart_id: usize,
 }
 
-impl Default for ThreadInfo{
-    fn default() -> Self {
-        Self { 
-            pc: Default::default(), 
-            regs: Default::default(), 
-            sstatus: riscv::register::sstatus::Sstatus::from_bits(0)
-        }
-    }
-}
 
 global_asm!(
         r#"
@@ -34,23 +26,29 @@ global_asm!(
         
        
         csrrw tp, sscratch, tp  // swap tp and sscratch
-        beqz tp, .Lkernel
+        
+        bnez tp, .Lsave_user_context
+        .Lsave_kernel_context:
 
-        j .Lend
-        .Lkernel:
-                csrrw tp, sscratch, tp  // restore tp and sscratch
+                csrr tp, sscratch       // restore tp
+                sd sp, 0(tp)            // save kernel stack pointer to scratch
 
-                addi sp, sp, -{frame_size}
-                
-                sd x2, 2 * 8( sp )
-        .Lend:
+                j .Lsave_context
 
+        .Lsave_user_context:
+
+            sd sp, 0(tp)    // save "user" sp to task scratch
+            ld sp, 8(tp)    // load kernel sp
+
+        .Lsave_context:
+
+        addi sp, sp, -{frame_size}
 
         // general registers
         sd x1, 1 * 8( sp )
-        
+        // sp
         sd x3, 3 * 8( sp )
-        sd x4, 4 * 8( sp )
+        // tp
         sd x5, 5 * 8( sp )
         sd x6, 6 * 8( sp )
         sd x7, 7 * 8( sp )
@@ -79,6 +77,15 @@ global_asm!(
         sd x30, 30 * 8( sp )
         sd x31, 31 * 8( sp )
 
+        ld s0, 0(tp)        // load sp from scratch
+        sd s0, 2 * 8( sp )  // save it to the stack
+        
+        csrr s1, sscratch   // read tp
+        sd s1, 4 * 8( sp )  // save it to the stack
+
+
+        csrw sscratch, x0               // set to 0 so if a recursive exception occurs we know we're comming from kernel space
+
         csrr t0, sstatus
         sd t0, 32 * 8( sp )
 
@@ -86,20 +93,42 @@ global_asm!(
         csrr a1, scause
         csrr a2, sepc
         csrr a3, stval
-        csrr a4, sscratch
 
         // save PC
         sd a2, 0( sp )
 
         jal {handler}
 
+
+
+
+
+.globl  strap_return
+
+.section .text.strap_return,"ax",@progbits
+.globl strap_return
+
         strap_return:
 
-        ld t0, 0(sp)
-        csrw sepc, t0
 
         ld t0, 32 * 8(sp)
         csrw sstatus, t0
+
+
+        andi t0, t0, 0x100 // are we transitioning to supervisor?
+
+        bnez t0, 1f
+
+            // we're going into user mode. save some info
+            addi t0, sp, {frame_size}
+            sd t0, 8(tp)                // save kernel stack pointer to task struct
+            csrw sscratch, tp            // save task struct pointer to scratch
+
+        1:
+
+
+        ld t0, 0(sp)
+        csrw sepc, t0
 
         
         ld x1, 1 * 8( sp )
@@ -134,17 +163,15 @@ global_asm!(
         ld x31, 31 * 8( sp )
         
         ld x2, 2 * 8( sp )
-        
-        addi sp, sp, {frame_size}
 
         sret
     "#,
     handler = sym strap_handler,
-    frame_size = const core::mem::size_of::<ThreadInfo>(),
+    frame_size = const core::mem::size_of::<Frame>(),
 );
 
 pub extern "C" fn strap_handler(
-    frame: &mut ThreadInfo,
+    frame: &mut Frame,
     scause: scause::Scause,
     sepc: usize,
     stval: usize,
@@ -225,17 +252,10 @@ pub extern "C" fn strap_handler(
     }
 }
 
-#[derive(Default)]
-struct Task{
-    pub kernel_sp: *mut u8,
-    pub user_sp: *mut u8,
-    pub thread: ThreadInfo,
-}
-
 /// # Safety
 ///
 /// .
-pub unsafe fn init(){
+pub unsafe fn init(hart_id: usize){
     unsafe extern "C" {
         #[link_name = "strap_vector"]
         pub fn strap_vector();
@@ -247,7 +267,11 @@ pub unsafe fn init(){
             riscv::register::stvec::TrapMode::Direct,
         ));
         use crate::alloc::boxed::Box;
-        let ptr = Box::leak(Box::new(Task::default()));
+        let ptr = Box::leak(Box::new(PerCpu{
+            scratch: 0,
+            kernel_sp: core::ptr::null_mut(),
+            hart_id,
+        }));
         asm!("move tp, {0}", in(reg) ptr);
         riscv::asm::ebreak();
         riscv::asm::ebreak();
@@ -267,7 +291,7 @@ pub unsafe fn begin_init_task(init: InitTask, hart_id: usize, dtb_ptr: *const u8
     sstatus.set_spie(true);
     sstatus.set_spp(riscv::register::sstatus::SPP::Supervisor);
 
-    let mut frame = ThreadInfo {
+    let mut frame = Frame {
         pc: init as usize,
         regs: [0; 31],
         sstatus,
@@ -281,7 +305,6 @@ pub unsafe fn begin_init_task(init: InitTask, hart_id: usize, dtb_ptr: *const u8
         core::arch::asm!(
 
             "
-            ebreak
             move sp, {0}
             tail strap_return",
             in(reg) &mut frame,

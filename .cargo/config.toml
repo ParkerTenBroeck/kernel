@@ -7,6 +7,7 @@ build-std = ["core", "compiler_builtins", "alloc"]
 build-std-features = ["compiler-builtins-mem"]
 
 [target.riscv64gc-unknown-none-elf]
+#linker = "./link.sh"
 rustflags = [
     "-C", "link-arg=--emit-relocs",
     "-C", "link-arg=-Tlink.map",
@@ -14,6 +15,7 @@ rustflags = [
     "-C", "code-model=medium",
     "-C", "relocation-model=pic",
     "-C", "target-feature=+zihintpause",
+    "-C", "force-frame-pointers=true",
 ]
 
 runner = """

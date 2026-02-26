@@ -13,8 +13,12 @@ PAGE_SIZE   = 4K;
 SECTIONS
 { 
   . = KERNEL_LINK_ADDR;
-  
+
+
   _kernel_start = .;
+
+  . += SIZEOF_HEADERS;
+  
 
   .text : AT(ADDR(.text) - OFFSET) ALIGN(PAGE_SIZE) {
     _text_start = .;
@@ -44,14 +48,22 @@ SECTIONS
     _data_start = .;
     *(.data .data.*)
     *(.sdata .sdata.*)
-    PROVIDE(__global_pointer$ = .);
-    *(.got .got.*)
+    *(.got*)
     _data_end = .;
   }
+
+
+  .symtab (PROGBITS) : AT(ADDR(.symtab) - OFFSET) { 
+    KEEP(*(.symtab)) 
+  }				
+  .strtab (PROGBITS) : AT(ADDR(.strtab) - OFFSET) { 
+    KEEP(*(.strtab)) 
+  }	
 
   .bss (NOLOAD) : AT(ADDR(.bss) - OFFSET) ALIGN(PAGE_SIZE) {
     _bss_start = .;
     *(.bss .bss.*)
+    *(.sbss .sbss.*)
     *(COMMON)
     _bss_end = .;
   }
@@ -63,5 +75,13 @@ SECTIONS
   } 
 
   _kernel_end = .;
+
+   /DISCARD/ : {
+        *(.comment*)
+        *(.eh_frame*)
+        *(.gcc_except_table*)
+        *(.note*)
+        *(.rel.eh_frame*)
+    }
 }
 

@@ -8,7 +8,7 @@ panic = "abort"
 opt-level = 1
 
 [profile.release]
-debug = 1
+debug = "full"
 panic = "abort"
 opt-level = "s"
 codegen-units = 1
@@ -17,6 +17,14 @@ codegen-units = 1
 mycelium-bitfield = "*"
 ansi = {version = "*", git="https://github.com/ParkerTenBroeck/ansi"}
 riscv = "*"
+rustc-demangle = {version = "0.1.16", default-features = false}
 
 [build-dependencies]
 image = "*"
+
+[lints]
+
+[lints.clippy]
+missing_safety_doc = "allow"
+new_without_default = "allow"
+identity_op = "allow"

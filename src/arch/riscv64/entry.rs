@@ -331,7 +331,6 @@ core::arch::global_asm!(
 .section .text.entry
 .global _start
 _start:
-    lla      gp, __global_pointer$
 
     // clear bss
     lla a3, _bss_start
@@ -399,7 +398,6 @@ _start:
     csrw stvec, t0
 
     lla sp, _stack_top
-    lla      gp, __global_pointer$
 
     // fix device tree pointer
     li t0, {phys_to_virt_offset}
