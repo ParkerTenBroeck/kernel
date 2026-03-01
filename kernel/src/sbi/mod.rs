@@ -8,6 +8,7 @@ pub struct SbiRet {
 #[inline(always)]
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(clippy::too_many_arguments)]
+#[allow(unused)]
 unsafe fn sbi_ecall(
     ext: usize,
     fid: usize,
@@ -20,6 +21,7 @@ unsafe fn sbi_ecall(
 ) -> SbiRet {
     let error: isize;
     let value: isize;
+    #[cfg(target_arch = "riscv64")]
     core::arch::asm!(
         "ecall",
         inlateout("a0") arg0 as isize => error,
@@ -32,6 +34,8 @@ unsafe fn sbi_ecall(
         in("a7") ext,
         options(nostack, preserves_flags),
     );
+    #[cfg(not(target_arch = "riscv64"))]
+    panic!();
     SbiRet { error, value }
 }
 

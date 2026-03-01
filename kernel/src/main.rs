@@ -21,6 +21,23 @@ use dev::*;
 
 use crate::{dtb::Dtb, std::stdio};
 
+#[unsafe(no_mangle)]
+#[inline(never)]
+#[allow(arithmetic_overflow)]
+pub fn square(num: i32) -> i32 {
+    num << 36
+}
+
+#[unsafe(no_mangle)]
+#[inline(never)]
+#[allow(arithmetic_overflow)]
+pub fn square2(num: i32, num2: u32) -> i32 {
+    num << num2
+}
+
+// pub fn main(){
+//     println!("{}, {}", square(7), square2(7, 36))
+// }
 
 /// # Safety
 /// dtb_ptr must point to a valid dtb tree
@@ -31,6 +48,10 @@ pub unsafe extern "C" fn kernel_entry(
     vma: usize,
     lma: usize,
 ) -> ! {
+
+
+    println!("{}, {}", square(7), square2(7, 36));
+    arch::halt();
 
     println!("Kernel entry, hart: {hart_id}, dtb: {dtb_ptr:?}, vma: {vma:#x?}, lma: {lma:#x?}");
 

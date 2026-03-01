@@ -34,6 +34,18 @@ SECTIONS
     *(.srodata .srodata.*)
   }
 
+  .ksymtab : AT(ADDR(.ksymtab) - OFFSET) { 
+    _ksymtab_start = .;
+    KEEP(*(.ksymtab));
+    _ksymtab_end = .;
+  }				
+
+  .kstrtab : AT(ADDR(.kstrtab) - OFFSET) ALIGN(8) { 
+    _kstrtab_start = .;
+    KEEP(*(.kstrtab));
+    _kstrtab_end = .;
+  }	
+
   .rela.dyn : AT(ADDR(.rela.dyn) - OFFSET) ALIGN(8) {
     __rela_dyn_start = .;
     KEEP(*(.rela.dyn))
@@ -51,14 +63,6 @@ SECTIONS
     *(.got*)
     _data_end = .;
   }
-
-
-  .symtab (PROGBITS) : AT(ADDR(.symtab) - OFFSET) { 
-    KEEP(*(.symtab)) 
-  }				
-  .strtab (PROGBITS) : AT(ADDR(.strtab) - OFFSET) { 
-    KEEP(*(.strtab)) 
-  }	
 
   .bss (NOLOAD) : AT(ADDR(.bss) - OFFSET) ALIGN(PAGE_SIZE) {
     _bss_start = .;

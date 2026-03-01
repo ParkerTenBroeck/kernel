@@ -51,7 +51,7 @@ pub fn test_pci() {
             let name = addr.byte_add(16).cast::<u8>();
             println!(
                 "offset: {offset:x}, data: {data:x}, count: {count},{:?}",
-                CStr::from_ptr(name)
+                CStr::from_ptr(name.cast())
             );
             if offset == 0 {
                 break;
@@ -59,7 +59,7 @@ pub fn test_pci() {
         }
     }
 
-    func1();
+    // func1();
 }
 
 
