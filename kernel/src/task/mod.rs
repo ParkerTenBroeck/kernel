@@ -8,7 +8,7 @@ pub struct Task{
 }
 
 #[derive(Debug)]
-pub struct Context{
+pub struct Context {
     pub arch: arch::Context,
     pub kstack: *mut u8,
     pub mmap: (),

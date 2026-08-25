@@ -295,10 +295,6 @@ unsafe extern "C" fn setup_vm(_: usize, dtb_ptr: *const u8, vma: usize, pma: usi
     );
     asm!("sfence.vma");
 
-    {
-
-    }
-
     uart::early_post_vm();
 
     // crate::mem::pages::free_page(Pointer::from_virt(&raw mut TRAMPOLINE_ROOT_PAGE).cast());

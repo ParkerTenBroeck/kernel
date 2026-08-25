@@ -7,7 +7,7 @@ use crate::{arch::Frame, println};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct PerCpu{
+pub struct PerCpu {
     pub scratch: usize,
     pub kernel_sp: *mut u8,
     pub hart_id: usize,
@@ -27,18 +27,19 @@ global_asm!(
        
         csrrw tp, sscratch, tp  // swap tp and sscratch
         
-        bnez tp, .Lsave_user_context
-        .Lsave_kernel_context:
-
-                csrr tp, sscratch       // restore tp
-                sd sp, 0(tp)            // save kernel stack pointer to scratch
-
-                j .Lsave_context
+        beqz tp, .Lsave_kernel_context
 
         .Lsave_user_context:
 
             sd sp, 0(tp)    // save "user" sp to task scratch
             ld sp, 8(tp)    // load kernel sp
+
+            j .Lsave_context
+
+        .Lsave_kernel_context:
+
+            csrr tp, sscratch       // restore tp
+            sd sp, 0(tp)            // save kernel stack pointer to scratch
 
         .Lsave_context:
 
@@ -115,7 +116,7 @@ global_asm!(
         csrw sstatus, t0
 
 
-        andi t0, t0, 0x100 // are we transitioning to supervisor?
+        andi t0, t0, 0b10000000 // are we transitioning to supervisor?
 
         bnez t0, 1f
 
@@ -236,6 +237,7 @@ pub extern "C" fn strap_handler(
         match scause.code() {
             0x5 => {
                 println!("Timer Interrupt");
+                crate::sbi::sbi_set_timer(riscv::register::time::read64()+1000000);
             }
             0x9 => {
                 panic!("External S-Mode interrupt");
@@ -273,8 +275,6 @@ pub unsafe fn init(hart_id: usize){
             hart_id,
         }));
         asm!("move tp, {0}", in(reg) ptr);
-        riscv::asm::ebreak();
-        riscv::asm::ebreak();
     }
 }
 
@@ -290,6 +290,9 @@ pub unsafe fn begin_init_task(init: InitTask, hart_id: usize, dtb_ptr: *const u8
     let mut sstatus = riscv::register::sstatus::read();
     sstatus.set_spie(true);
     sstatus.set_spp(riscv::register::sstatus::SPP::Supervisor);
+    unsafe{
+        riscv::register::sscratch::write(0);
+    }
 
     let mut frame = Frame {
         pc: init as usize,
@@ -302,9 +305,7 @@ pub unsafe fn begin_init_task(init: InitTask, hart_id: usize, dtb_ptr: *const u8
 
     println!("Beginning Init Task");
     unsafe {
-        core::arch::asm!(
-
-            "
+        core::arch::asm!("
             move sp, {0}
             tail strap_return",
             in(reg) &mut frame,

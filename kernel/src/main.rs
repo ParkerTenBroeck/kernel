@@ -48,16 +48,12 @@ pub unsafe extern "C" fn kernel_entry(
     vma: usize,
     lma: usize,
 ) -> ! {
-
-
-    println!("{}, {}", square(7), square2(7, 36));
-    arch::halt();
-
     println!("Kernel entry, hart: {hart_id}, dtb: {dtb_ptr:?}, vma: {vma:#x?}, lma: {lma:#x?}");
 
     unsafe{
         crate::arch::strap::init(hart_id);
     }
+
 
     unsafe {
         crate::arch::strap::begin_init_task(init_task, hart_id, dtb_ptr);
@@ -76,11 +72,10 @@ pub unsafe extern "C" fn init_task(_hart_id: usize, dtb_ptr: *const u8) -> ! {
 
     uart::init(&dtb);
 
-    // timer::clint::init(&dtb);
 
     dev::test_pci::test_pci();
 
-    vga::init(1920, 1080);
+    vga::init(720, 480);
     display::update_buffer(vga::framebuffer());
 
     stdio::set_sout(|str| {
@@ -96,5 +91,20 @@ pub unsafe extern "C" fn init_task(_hart_id: usize, dtb_ptr: *const u8) -> ! {
 
     syscon::init(&dtb);
 
+    // timer::clint::init(&dtb);
+
+    sbi::sbi_set_timer(riscv::register::time::read64()+100000);
+    unsafe {
+        riscv::register::sie::set_stimer();
+    }
+
+    loop{
+        riscv::asm::wfi();
+    }
+ 
+
+
+    syscon::poweroff();
+    #[allow(unreachable_code)]
     arch::halt()
 }

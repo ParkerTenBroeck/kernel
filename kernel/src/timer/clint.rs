@@ -152,15 +152,9 @@ pub fn init(dtb: &crate::dtb::Dtb) {
             let ptr = Pointer::from_phys(start as *mut ()).virt() as usize;
             let clint = Clint::new(ptr);
 
-            clint.set_timer_relative(0, timebase_freq as u64);
+            // clint.set_timer_relative(0, timebase_freq as u64);
 
-            // sbi_set_timer(riscv::register::time::read64() + 10000000);
-            riscv::register::sie::set_stimer();
-            // riscv::register::sie::set_ssoft();
-            riscv::register::sie::set_sext();
-            riscv::register::sstatus::set_sie();
-
-            // clint.send_ipi(0);
+            clint.send_ipi(0);
 
             println!("meow");
         }

@@ -1,6 +1,7 @@
 use crate::arch;
 
 use crate::dtb::*;
+use crate::mem::Pointer;
 use crate::println;
 
 #[derive(Clone, Copy, Debug)]
@@ -58,7 +59,7 @@ pub fn init(dtb: &Dtb) {
         }
 
         unsafe {
-            SYSCON.poweroff.ptr = (start as usize + offset) as *mut u32;
+            SYSCON.poweroff.ptr = Pointer::from_phys((start as usize + offset) as *mut u32).virt();
             SYSCON.poweroff.value = value;
         }
     }
