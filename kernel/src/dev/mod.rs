@@ -5,3 +5,5 @@ pub mod syscon;
 pub mod test_pci;
 pub mod uart;
 pub mod vga;
+pub mod timer;
+pub mod clint;

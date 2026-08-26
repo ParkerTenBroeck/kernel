@@ -2,16 +2,8 @@ use core::arch::{asm, global_asm};
 
 use riscv::register::{scause, stvec::Stvec};
 
-use crate::{arch::Frame, println};
+use crate::{arch::{Frame, PerCpu}, println};
 
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct PerCpu {
-    pub scratch: usize,
-    pub kernel_sp: *mut u8,
-    pub hart_id: usize,
-}
 
 
 global_asm!(
@@ -116,10 +108,9 @@ global_asm!(
         csrw sstatus, t0
 
 
-        andi t0, t0, 0b10000000 // are we transitioning to supervisor?
+        andi t0, t0, 0x100 // are we transitioning to supervisor?
 
         bnez t0, 1f
-
             // we're going into user mode. save some info
             addi t0, sp, {frame_size}
             sd t0, 8(tp)                // save kernel stack pointer to task struct
@@ -254,30 +245,6 @@ pub extern "C" fn strap_handler(
     }
 }
 
-/// # Safety
-///
-/// .
-pub unsafe fn init(hart_id: usize){
-    unsafe extern "C" {
-        #[link_name = "strap_vector"]
-        pub fn strap_vector();
-    }
-    unsafe {
-        riscv::register::sscratch::write(0);
-        riscv::register::stvec::write(Stvec::new(
-            strap_vector as *const () as usize,
-            riscv::register::stvec::TrapMode::Direct,
-        ));
-        use crate::alloc::boxed::Box;
-        let ptr = Box::leak(Box::new(PerCpu{
-            scratch: 0,
-            kernel_sp: core::ptr::null_mut(),
-            hart_id,
-        }));
-        asm!("move tp, {0}", in(reg) ptr);
-    }
-}
-
 type InitTask = unsafe extern "C" fn(hart_id: usize, dtb_ptr: *const u8) -> !;
 
 /// # Safety
@@ -285,14 +252,29 @@ type InitTask = unsafe extern "C" fn(hart_id: usize, dtb_ptr: *const u8) -> !;
 /// .
 pub unsafe fn begin_init_task(init: InitTask, hart_id: usize, dtb_ptr: *const u8) -> ! {
 
+    unsafe extern "C" {
+        #[link_name = "strap_vector"]
+        pub fn strap_vector();
+    }
+    let tp = unsafe {
+        riscv::register::sscratch::write(0);
+        riscv::register::stvec::write(Stvec::new(
+            strap_vector as *const () as usize,
+            riscv::register::stvec::TrapMode::Direct,
+        ));
+        use crate::alloc::boxed::Box;
+        Box::leak(Box::new(PerCpu{
+            scratch: 0,
+            kernel_sp: core::ptr::null_mut(),
+            hart_id,
+        }))
+    };
+
     let sp = crate::mem::KernelLayout::new().stack.end;
 
     let mut sstatus = riscv::register::sstatus::read();
     sstatus.set_spie(true);
     sstatus.set_spp(riscv::register::sstatus::SPP::Supervisor);
-    unsafe{
-        riscv::register::sscratch::write(0);
-    }
 
     let mut frame = Frame {
         pc: init as usize,
@@ -300,6 +282,7 @@ pub unsafe fn begin_init_task(init: InitTask, hart_id: usize, dtb_ptr: *const u8
         sstatus,
     };
     frame.regs[1] = sp;
+    frame.regs[3] = tp as *mut PerCpu as usize;
     frame.regs[9] = hart_id;
     frame.regs[10] = dtb_ptr as usize;
 

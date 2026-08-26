@@ -1,7 +1,6 @@
 use core::arch::asm;
 
 pub mod entry;
-pub mod mtrap;
 pub mod page;
 pub mod reloc;
 pub mod strap;
@@ -12,16 +11,6 @@ pub fn halt() -> ! {
         riscv::asm::wfi()
     }
 }
-
-pub fn link_addr() -> usize {
-    let out;
-    unsafe {
-        asm!("lga {}, KERNEL_VMA", out(reg) out);
-    }
-    out
-}
-
-
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -43,6 +32,31 @@ impl Default for Frame{
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct Context{
+pub struct Context {
     pub frame: Frame
+}
+
+
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PerCpu {
+    pub scratch: usize,
+    pub kernel_sp: *mut u8,
+    pub hart_id: usize,
+
+    
+}
+
+pub fn local_ctx() -> *mut PerCpu {
+    let tp;
+    unsafe {
+        // Read directly from the `tp` register into a general-purpose register
+        asm!(
+            "mv {}, tp", 
+            out(reg) tp,
+            options(nomem, nostack, preserves_flags)
+        );
+    }
+    tp
 }

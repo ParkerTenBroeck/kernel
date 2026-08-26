@@ -54,7 +54,7 @@ mycelium_bitfield::bitfield! {
 mycelium_bitfield::bitfield! {
     #[derive(Eq, PartialEq)]
     pub struct StatusRegister<u16> {
-        pub const _RESERVED0 = 2;
+        pub const _RESERVED0 = 3;
         pub const INTR_STATUS: bool;
         pub const CAPABILITIES_LIST: bool;
         pub const COMPAT_66_MHZ: bool;

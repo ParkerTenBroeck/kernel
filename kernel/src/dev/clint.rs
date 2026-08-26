@@ -119,20 +119,6 @@ impl Clint {
 
 #[allow(static_mut_refs)]
 pub fn init(dtb: &crate::dtb::Dtb) {
-    for plic in dtb.nodes().compatible(b"riscv,plic0") {
-        let [start, _size] = plic.properties().expect_value(b"reg", |stream| {
-            stream.usize_cells_arr(dtb.root().addr_size_cells())
-        });
-        let max_int = plic
-            .properties()
-            .expect_value(b"riscv,ndev", ByteStream::u32);
-        unsafe {
-            let mut plic = PlicDev::new(Pointer::from_phys(start as *mut Plic).virt(), max_int);
-
-            plic.clear();
-        }
-    }
-
     let timebase_freq = dtb
         .nodes()
         .nammed(b"cpus")
@@ -152,9 +138,9 @@ pub fn init(dtb: &crate::dtb::Dtb) {
             let ptr = Pointer::from_phys(start as *mut ()).virt() as usize;
             let clint = Clint::new(ptr);
 
-            // clint.set_timer_relative(0, timebase_freq as u64);
+            clint.set_timer_relative(0, timebase_freq as u64);
 
-            clint.send_ipi(0);
+            // clint.send_ipi(0);
 
             println!("meow");
         }
