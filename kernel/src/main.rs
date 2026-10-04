@@ -16,27 +16,11 @@ pub mod task;
 pub mod util;
 pub mod syscall;
 
+
 use dev::*;
 
-use crate::{dtb::Dtb, std::stdio};
+use crate::{dev::timer::TimerDev, dtb::Dtb, std::stdio};
 
-#[unsafe(no_mangle)]
-#[inline(never)]
-#[allow(arithmetic_overflow)]
-pub fn square(num: i32) -> i32 {
-    num << 36
-}
-
-#[unsafe(no_mangle)]
-#[inline(never)]
-#[allow(arithmetic_overflow)]
-pub fn square2(num: i32, num2: u32) -> i32 {
-    num << num2
-}
-
-// pub fn main(){
-//     println!("{}, {}", square(7), square2(7, 36))
-// }
 
 /// # Safety
 /// dtb_ptr must point to a valid dtb tree
@@ -66,11 +50,15 @@ pub unsafe extern "C" fn init_task(_hart_id: usize, dtb_ptr: *const u8) -> ! {
 
     interrupt::init(&dtb);
     let timer = dev::timer::sbi::SbiTimer::new(&dtb);
+    let timer: alloc::boxed::Box<dyn TimerDev> = alloc::boxed::Box::new(timer);
+    // timer.set_enable(false);
     
     pci::init(&dtb);
     uart::init(&dtb);
 
-    dev::block::virtio::init(&dtb);
+    dev::net::rtl8139::init(&dtb);
+
+    // dev::block::virtio::init(&dtb);
 
     // dev::test_pci::test_pci();
 

@@ -36,8 +36,6 @@ pub struct Context {
     pub frame: Frame
 }
 
-
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PerCpu {

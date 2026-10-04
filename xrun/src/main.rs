@@ -67,7 +67,7 @@ fn qemu_args() -> Vec<String> {
         "-netdev".into(),
         "user,id=net0".into(),
         "-device".into(),
-        "i82559c,netdev=net0".into(),
+        "rtl8139,netdev=net0".into(),
         "-chardev".into(),
         "vc,id=pci_uart".into(),
         "-device".into(),
