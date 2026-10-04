@@ -303,7 +303,7 @@ unsafe extern "C" fn setup_vm(_: usize, dtb_ptr: *const u8, vma: usize, pma: usi
 
     crate::alloc::init();
 
-    println!("Completed kernel meory map");
+    println!("Completed kernel memory map");
 }
 
 unsafe extern "C" fn early_panic() {

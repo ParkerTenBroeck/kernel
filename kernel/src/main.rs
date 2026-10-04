@@ -31,6 +31,7 @@ pub unsafe extern "C" fn kernel_entry(
     vma: usize,
     lma: usize,
 ) -> ! {
+
     println!("Kernel entry, hart: {hart_id}, dtb: {dtb_ptr:?}, vma: {vma:#x?}, lma: {lma:#x?}");
 
     unsafe {

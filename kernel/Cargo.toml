@@ -8,7 +8,7 @@ panic = "abort"
 opt-level = 1
 
 [profile.release]
-debug = "full"
+debug = true
 panic = "abort"
 opt-level = "s"
 codegen-units = 1
@@ -17,7 +17,6 @@ codegen-units = 1
 mycelium-bitfield = "*"
 ansi = {version = "*", git="https://github.com/ParkerTenBroeck/ansi"}
 riscv = "*"
-rustc-demangle = {version = "0.1.16", default-features = false}
 
 [build-dependencies]
 image = "*"

@@ -330,7 +330,7 @@ impl PCI {
                 Bar::MMIO32(offset, prefetchable) => self
                     .pointer(device, off)
                     .virt()
-                    .write_volatile(offset & !0b1111 | ((prefetchable as u32) << 3) | 0b100),
+                    .write_volatile(offset & !0b1111 | ((prefetchable as u32) << 3)),
                 Bar::IO(offset) => {
                     self.pointer(device, off)
                         .virt()
